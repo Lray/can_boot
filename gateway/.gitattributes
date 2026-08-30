@@ -1,0 +1,2 @@
+# Reference OTA package: preserve every byte, including metadata line endings.
+upgrade_package_v1.2.46/** -text

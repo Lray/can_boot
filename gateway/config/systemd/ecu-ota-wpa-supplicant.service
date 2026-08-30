@@ -1,0 +1,18 @@
+[Unit]
+Description=ECU OTA WPA supplicant
+Requires=ecu-ota-wifi.service
+After=ecu-ota-wifi.service
+Before=ecu-ota-network-online.service
+ConditionPathExists=/etc/ecu-ota/wpa_supplicant.conf
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/ecu-ota/wifi.conf
+RuntimeDirectory=wpa_supplicant
+RuntimeDirectoryMode=0750
+ExecStart=/usr/sbin/wpa_supplicant -D nl80211 -i ${ECU_WIFI_IFNAME} -c /etc/ecu-ota/wpa_supplicant.conf -C /run/wpa_supplicant
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

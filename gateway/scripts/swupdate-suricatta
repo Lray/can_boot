@@ -1,0 +1,63 @@
+#!/bin/sh
+set -efu
+
+fail()
+{
+    printf '%s\n' "ecu-ota: $1" >&2
+    exit 2
+}
+
+require_safe_identifier()
+{
+    case "$2" in
+        ''|*[!A-Za-z0-9._-]*) fail "invalid $1" ;;
+    esac
+}
+
+require_decimal()
+{
+    case "$2" in
+        ''|*[!0-9]*) fail "invalid $1" ;;
+    esac
+}
+
+: "${HAWKBIT_SERVER_URL:?HAWKBIT_SERVER_URL is required}"
+: "${HAWKBIT_TENANT:?HAWKBIT_TENANT is required}"
+: "${HAWKBIT_TARGET_ID:?HAWKBIT_TARGET_ID is required}"
+: "${HAWKBIT_TARGET_TOKEN:?HAWKBIT_TARGET_TOKEN is required}"
+: "${SWUPDATE_TRUST_KEY:?SWUPDATE_TRUST_KEY is required}"
+: "${SWUPDATE_LOG_LEVEL:?SWUPDATE_LOG_LEVEL is required}"
+: "${SWUPDATE_POLL_DELAY:?SWUPDATE_POLL_DELAY is required}"
+: "${SWUPDATE_RETRIES:?SWUPDATE_RETRIES is required}"
+: "${SWUPDATE_RETRY_WAIT:?SWUPDATE_RETRY_WAIT is required}"
+
+case "$HAWKBIT_SERVER_URL" in
+    http://*) hawkbit_endpoint=${HAWKBIT_SERVER_URL#http://} ;;
+    https://*) hawkbit_endpoint=${HAWKBIT_SERVER_URL#https://} ;;
+    *) fail 'HAWKBIT_SERVER_URL must use http or https' ;;
+esac
+case "$hawkbit_endpoint" in
+    ''|*/*|*[!A-Za-z0-9.:-]*) fail 'invalid HAWKBIT_SERVER_URL host or port' ;;
+esac
+[ "${#HAWKBIT_TARGET_TOKEN}" -eq 32 ] ||
+    fail 'HAWKBIT_TARGET_TOKEN must be exactly 32 lowercase hexadecimal characters'
+case "$HAWKBIT_TARGET_TOKEN" in
+    *[!0-9a-f]*) fail 'HAWKBIT_TARGET_TOKEN must be lowercase hexadecimal' ;;
+esac
+case "$SWUPDATE_TRUST_KEY" in
+    /*) ;;
+    *) fail 'SWUPDATE_TRUST_KEY must be absolute' ;;
+esac
+
+require_safe_identifier HAWKBIT_TENANT "$HAWKBIT_TENANT"
+require_safe_identifier HAWKBIT_TARGET_ID "$HAWKBIT_TARGET_ID"
+require_decimal SWUPDATE_LOG_LEVEL "$SWUPDATE_LOG_LEVEL"
+require_decimal SWUPDATE_POLL_DELAY "$SWUPDATE_POLL_DELAY"
+require_decimal SWUPDATE_RETRIES "$SWUPDATE_RETRIES"
+require_decimal SWUPDATE_RETRY_WAIT "$SWUPDATE_RETRY_WAIT"
+
+[ -f "$SWUPDATE_TRUST_KEY" ] && [ ! -L "$SWUPDATE_TRUST_KEY" ] ||
+    fail 'SWUpdate trust key is unavailable or unsafe'
+
+exec /sbin/swupdate -L -l "$SWUPDATE_LOG_LEVEL" -k "$SWUPDATE_TRUST_KEY" \
+    -u "-t $HAWKBIT_TENANT -u $hawkbit_endpoint -i $HAWKBIT_TARGET_ID -k $HAWKBIT_TARGET_TOKEN -p $SWUPDATE_POLL_DELAY -r $SWUPDATE_RETRIES -w $SWUPDATE_RETRY_WAIT"

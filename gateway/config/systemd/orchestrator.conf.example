@@ -1,0 +1,14 @@
+# Install as /etc/ecu-ota/orchestrator.conf with owner root and mode 0640.
+# Create one distinct UUID and replace both release bindings before assigning
+# the corresponding SWU in HawkBit.  Never reuse a completed job directory.
+ECU_OTA_JOB_ID=REPLACE_WITH_UUID_V4
+ECU_OTA_EXPECTED_SIZE=131072
+ECU_OTA_EXPECTED_SHA256=REPLACE_WITH_IMAGE_SHA256
+ECU_OTA_WORK_ROOT=/var/lib/ecu-ota/jobs
+ECU_OTA_CAN_IFNAME=awlink0
+ECU_OTA_REMOTE_ENDPOINT=ipc:///run/ecu-ota/remote-handler/ecu-v1
+ECU_TOKEN_SIGNER_ENDPOINT=/run/ecu-token-signer/v1.sock
+ECU_TOKEN_SIGNER_UID=200
+ECU_TOKEN_SIGNER_GID=200
+ECU_TOKEN_SIGNER_SOCKET_GID=201
+ECU_TOKEN_SIGNER_TIMEOUT_MS=1000

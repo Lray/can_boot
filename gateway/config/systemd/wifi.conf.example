@@ -1,0 +1,2 @@
+# Install as /etc/ecu-ota/wifi.conf with owner root and mode 0640.
+ECU_WIFI_IFNAME=wlan0

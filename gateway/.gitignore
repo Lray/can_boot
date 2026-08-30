@@ -1,0 +1,13 @@
+build-host/
+build-target/
+build-*/
+deploy-flash-write/
+deploy-journal-resume/
+deploy-verify-boot/
+deploy-fault-injection/
+*.log
+*.tmp
+*.rx
+**/__pycache__/
+.pytest_cache/
+**/.pytest_cache/

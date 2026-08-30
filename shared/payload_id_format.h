@@ -1,0 +1,6 @@
+#ifndef PAYLOAD_ID_FORMAT_H
+#define PAYLOAD_ID_FORMAT_H
+
+#define PAYLOAD_ID_SIZE 32U
+
+#endif /* PAYLOAD_ID_FORMAT_H */

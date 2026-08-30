@@ -1,0 +1,8 @@
+ctrl_interface=DIR=/run/wpa_supplicant GROUP=0
+
+network={
+    ssid="REPLACE_WITH_WIFI_SSID"
+    psk=REPLACE_WITH_WPA_PSK_HEX
+    key_mgmt=WPA-PSK
+    priority=10
+}

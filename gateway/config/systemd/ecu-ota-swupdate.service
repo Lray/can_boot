@@ -1,0 +1,18 @@
+[Unit]
+Description=ECU OTA SWUpdate Suricatta client
+Wants=ecu-ota-wifi.service ecu-ota-wpa-supplicant.service ecu-ota-network-online.service ecu-ota-orchestrator.service
+After=ecu-ota-network-online.service ecu-ota-orchestrator.service
+ConditionPathExists=/etc/ecu-ota/hawkbit.conf
+ConditionPathExists=/sbin/swupdate
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/ecu-ota/hawkbit.conf
+ExecStartPre=/usr/libexec/ecu-ota/wait-for-remote-handler
+ExecStart=/usr/libexec/ecu-ota/swupdate-suricatta
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

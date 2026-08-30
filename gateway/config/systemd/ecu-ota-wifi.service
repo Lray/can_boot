@@ -1,0 +1,14 @@
+[Unit]
+Description=ECU OTA Wi-Fi link preparation
+Wants=systemd-networkd.service
+After=local-fs.target systemd-networkd.service
+Before=ecu-ota-wpa-supplicant.service ecu-ota-network-online.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/ecu-ota/wifi.conf
+ExecStart=/usr/sbin/ip link set dev ${ECU_WIFI_IFNAME} up
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

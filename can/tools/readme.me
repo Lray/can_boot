@@ -1,0 +1,186 @@
+# make_ecu_mcuboot_bundle.py 使用说明
+
+`make_ecu_mcuboot_bundle.py` 用于为 STM32U5 CAN ECU 生成 MCUboot 签名镜像。一个脚本支持两种用途：
+
+1. 生成供网关 OTA 使用的完整升级包。
+2. `--provisioning` 模式生成供 Boot YMODEM 初始烧写使用的镜像。
+
+脚本会校验应用向量表、目标槽地址、MCUboot 头、版本、签名 TLV、Security Counter、镜像大小和 trailer，校验失败时不会生成可交付升级包。
+
+## 1. 查看帮助
+
+在 PowerShell 中执行：
+
+```powershell
+python E:\T527\can_boot\can\scripts\make_ecu_mcuboot_bundle.py --help
+```
+
+简写形式：
+
+```powershell
+python E:\T527\can_boot\can\scripts\make_ecu_mcuboot_bundle.py -h
+```
+
+帮助信息会显示标准的 `usage`、全部可用参数及各参数用途。脚本没有子命令；通过参数组合选择生成模式。
+
+## 2. 环境要求
+
+- Python 3.10 或更高版本。
+- MCUboot `imgtool`，例如 `E:\Python314\Scripts\imgtool.exe`。
+- 与 Bootloader 内置公钥匹配的 ECDSA P-256 私钥，当前默认值为 `E:\Simple_ST\Boot\keys\root-ec-p256.pem`。
+- CMake 构建需要 CMake 3.22 或更高版本、Ninja 和 Arm GNU 工具链。
+- 应用必须按目标槽重新链接：
+  - Slot 0 payload/vector 基址：`0x08010200`
+  - Slot 1 payload/vector 基址：`0x08030200`
+
+使用 `cmake --preset Debug-slot0` 或 `cmake --preset Debug-slot1` 配置目标槽，
+然后使用对应的 `cmake --build --preset ...` 生成 `Can.bin`。`--axf` 和
+`--fromelf` 仅保留用于显式指定的旧 Keil 输入。
+
+不要把为 Slot 0 链接的 payload 用于 Slot 1，反之亦然。脚本会检查 reset vector 是否位于所选槽范围内。
+
+## 3. 生成网关 OTA 升级包
+
+以下示例使用 CMake Slot 1 payload，签名并生成网关升级包：
+
+```powershell
+cmake --preset Debug-slot1
+cmake --build --preset Debug-slot1
+
+python E:\T527\can_boot\can\scripts\make_ecu_mcuboot_bundle.py `
+  --target-slot 1 `
+  --version 1.2.1 `
+  --security-counter 11 `
+  --payload E:\T527\can_boot\can\build\Debug-slot1\Can.bin `
+  --out-dir E:\T527\can_boot\can\test_bin `
+  --key E:\Simple_ST\Boot\keys\root-ec-p256.pem `
+  --imgtool E:\Python314\Scripts\imgtool.exe
+```
+
+网关 OTA 模式不要添加 `--provisioning`。制作工具会在普通 OTA
+`image.bin` 中只预置 MCUboot trailer magic；`swap_info`/保留单元、
+`copy_done` 和 `image_ok` 保持擦除态 `0xFF`。ECU 按传输数据直接写入目标槽，
+不再校验 pending trailer 或写入 magic；新固件通过启动自检后只写
+`image_ok=1`。
+
+正常模式生成：
+
+- `image.bin`：完整 `0x20000` 字节槽镜像。
+- `package.info`：镜像版本、槽、地址、SHA-256 等信息。
+- `package.source`：升级包来源路径记录。
+- `package.sha256`：`image.bin` 的 SHA-256。
+- `payload-primary.bin` 或 `payload-secondary.bin`：从 CMake 输入 payload 复制的原始应用。
+
+网关部署时仅需 `image.bin`（即 package 中的 `image.bin`）：
+长度、摘要和版本均由 gateway 从镜像推导，不单独成文，格式见
+`gateway/docs/ota-package-format.md`。
+
+## 4. 生成 Boot YMODEM 镜像
+
+YMODEM 初始烧写使用 `--provisioning`。以下示例生成 Slot 0 初始运行镜像：
+
+```powershell
+python E:\T527\can_boot\can\scripts\make_ecu_mcuboot_bundle.py `
+  --target-slot 0 `
+  --version 1.1.0 `
+  --security-counter 11 `
+  --payload E:\T527\can_boot\can\run_bin\Can.bin `
+  --out-dir E:\T527\can_boot\can\run_bin `
+  --key E:\Simple_ST\Boot\keys\root-ec-p256.pem `
+  --imgtool E:\Python314\Scripts\imgtool.exe `
+  --provisioning
+```
+
+将生成的 `image.bin` 作为 YMODEM 发送文件。该镜像大小固定为 `0x20000` 字节，trailer 中预置 MCUboot magic、`copy_done=1` 和 `image_ok=1`，适用于 Direct-XIP 初始部署。
+
+`--provisioning` 只生成 `image.bin`（`--axf` 输入时会导出 payload 文件），不生成任何网关 package 文件；它必须搭配 `--security-counter`。
+
+## 5. 使用已有 raw payload
+
+`--payload` 接收不含 MCUboot header 的原始应用二进制：
+
+```powershell
+python E:\T527\can_boot\can\scripts\make_ecu_mcuboot_bundle.py `
+  --payload E:\path\to\Can.bin `
+  --target-slot 0 `
+  --version 1.2.0 `
+  --security-counter 11 `
+  --out-dir E:\path\to\output `
+  --key E:\Simple_ST\Boot\keys\root-ec-p256.pem `
+  --imgtool E:\Python314\Scripts\imgtool.exe
+```
+
+`--payload` 和 `--axf` 互斥，不能同时使用。两者都不指定时，脚本默认读取
+CMake Slot 0 输出：
+
+```text
+E:\T527\can_boot\can\build\Debug-slot0\Can.bin
+```
+
+## 6. 参数说明
+
+| 参数 | 用途 | 默认值 |
+| --- | --- | --- |
+| `-h`, `--help` | 显示标准帮助并退出 | 无 |
+| `--payload PATH` | 输入不含 MCUboot header 的 raw payload | 不指定 |
+| `--axf PATH` | 输入旧 Keil AXF，并通过 `fromelf` 导出 payload | 不指定 |
+| `--out-dir PATH` | 输出目录 | 当前目录下的 `build-target` |
+| `--target-slot {0,1}` | 目标槽 | `0` |
+| `--version VERSION` | MCUboot 版本，格式为 `MAJOR.MINOR[.REVISION][+BUILD]` | `1.2.0` |
+| `--security-counter N` | MCUboot 防回滚计数器，支持十进制或 `0x` 十六进制 | 不指定 |
+| `--key PATH` | MCUboot 签名私钥 | `E:\Simple_ST\Boot\keys\root-ec-p256.pem` |
+| `--fromelf PATH` | 旧 Keil AXF 转 bin 工具 | PATH 中的 `fromelf.exe` |
+| `--imgtool PATH` | MCUboot 镜像签名工具 | PATH 中的 `imgtool.exe` |
+| `--provisioning` | 生成 Boot YMODEM 初始部署用 confirmed-trailer 镜像（须搭配 `--security-counter`） | 关闭 |
+
+## 7. 版本和镜像格式说明
+
+- MCUboot header 大小：`0x200`。
+- 槽大小：`0x20000` 字节。
+- trailer 起始偏移：`0x1FFC0`。
+- 签名算法：ECDSA P-256，摘要为 SHA-256。
+- 对齐：16 字节。
+- Gateway、ECU DID 和 MCUboot image header 均使用完整的
+  `major.minor.revision+build`，不能只比较 major/minor。
+
+例如 `--version 1.2.24+7`：MCUboot header 版本即 `1.2.24+7`，gateway 直接从
+header 推导该版本用于判卷。
+
+## 8. 常见问题
+
+### `Boot signing key not found`
+
+检查 `--key` 路径。签名私钥必须与 Bootloader 固件内置的公钥匹配。
+
+### 找不到 `fromelf.exe`
+
+仅在使用显式 `--axf` 时，使用 `--fromelf` 传入完整路径；正常流程使用
+CMake 生成的 `--payload`。
+
+### 找不到 `imgtool.exe`
+
+使用 `--imgtool` 传入完整路径，例如：
+
+```text
+--imgtool E:\Python314\Scripts\imgtool.exe
+```
+
+### `payload reset vector ... is not within target slot`
+
+应用链接地址与 `--target-slot` 不匹配。按目标槽 payload 基址重新链接并构建应用。
+
+### `signed image is missing protected IMAGE_TLV_SEC_CNT`
+
+Boot 防回滚流程要求 Security Counter 时，应传入 `--security-counter N`。
+
+### YMODEM 是否需要网关 package 文件
+
+不需要。YMODEM 初始部署使用 `--provisioning` 生成的 `image.bin`。只有网关 OTA
+升级才需要 descriptor JSON。
+
+## 9. 安全注意事项
+
+- 不要把正式签名私钥提交到 Git、升级包或日志中。
+- 发布前应确认 `--target-slot`、链接地址、版本号和 Security Counter。
+- Security Counter 一旦提高，低计数器镜像可能被 Bootloader 永久拒绝；量产时应按发布策略递增。
+- 生成完成后保留 `package.info` 和 SHA-256，用于部署审计及问题追踪。

@@ -1,0 +1,768 @@
+{
+  "project_root": "..",
+  "source_roots": [
+    "Core/Src",
+    "Core/Inc",
+    "Tests",
+    "boot",
+    "download",
+    "security",
+    "transport",
+    "uds"
+  ],
+  "project_include_roots": [
+    "Core/Inc",
+    "boot",
+    "download",
+    "security",
+    "transport",
+    "uds"
+  ],
+  "include_globs": [
+    "boot/*.c",
+    "download/*.c",
+    "security/*.c",
+    "transport/*.c",
+    "uds/*.c",
+    "boot/*.h",
+    "download/*.h",
+    "security/*.h",
+    "transport/*.h",
+    "uds/*.h",
+    "Core/Src/fdcan.c",
+    "Core/Inc/fdcan.h",
+    "Tests/*.c",
+    "Tests/*.h"
+  ],
+  "exclude_globs": [],
+  "dependency_rule_coverage": [
+    "boot/*.c",
+    "download/*.c",
+    "security/*.c",
+    "transport/*.c",
+    "uds/*.c",
+    "boot/*.h",
+    "download/*.h",
+    "security/*.h",
+    "transport/*.h",
+    "uds/*.h",
+    "Core/Src/fdcan.c",
+    "Core/Inc/fdcan.h"
+  ],
+  "module_pairs": [
+    {
+      "source_glob": "Core/Src/fdcan.c",
+      "header_dir": "Core/Inc"
+    },
+    {
+      "source_glob": "boot/*.c",
+      "header_dir": "boot"
+    },
+    {
+      "source_glob": "download/*.c",
+      "header_dir": "download"
+    },
+    {
+      "source_glob": "security/*.c",
+      "header_dir": "security"
+    },
+    {
+      "source_glob": "transport/*.c",
+      "header_dir": "transport"
+    },
+    {
+      "source_glob": "uds/*.c",
+      "header_dir": "uds"
+    }
+  ],
+  "dependency_rules": [
+    {
+      "name": "fdcan-must-not-depend-on-upper-layers",
+      "from": [
+        "Core/Src/fdcan.c",
+        "Core/Inc/fdcan.h"
+      ],
+      "allowed_project_includes": [
+        "fdcan.h",
+        "main.h"
+      ],
+      "forbid_includes": [
+        "can_transport.h",
+        "isotp.h",
+        "uds_server.h",
+        "uds_read_did.h",
+        "uds_msg.h",
+        "download.h",
+        "security_*.h"
+      ],
+      "forbidden_symbols": [
+        "CAN_Transport_*",
+        "can_transport_*",
+        "ISOTP_*",
+        "isotp_*",
+        "UDS_*",
+        "uds_*",
+        "Download_*",
+        "download_*",
+        "Security*",
+        "security_*",
+        "BootObservation_*",
+        "ImageConfirm_*",
+        "Confirm_*",
+        "ImageVerify_*"
+      ],
+      "forbidden_patterns": [
+        {
+          "regex": "__attribute__\\s*\\(\\(\\s*weak\\s*\\)\\)",
+          "description": "weak callback used to call an upper layer"
+        }
+      ],
+      "reason": "FDCAN reports unrecoverable initialization failures through the application Error_Handler and cannot depend on CAN, protocol, OTA, security, or logging domains"
+    },
+    {
+      "name": "stm32-can-driver-must-not-depend-on-upper-layers",
+      "from": [
+        "transport/can_driver_stm32.c",
+        "transport/can_driver_stm32.h"
+      ],
+      "allowed_project_includes": [
+        "can_driver.h",
+        "can_driver_stm32.h",
+        "fdcan.h"
+      ],
+      "forbid_includes": [
+        "main.h",
+        "can_transport.h",
+        "isotp.h",
+        "uds_server.h",
+        "uds_read_did.h",
+        "uds_msg.h",
+        "download.h",
+        "security_*.h",
+        "ulog*.h"
+      ],
+      "forbidden_symbols": [
+        "CAN_Transport_*",
+        "ISOTP_*",
+        "UDS_*",
+        "Download_*",
+        "Security*",
+        "Log_*",
+        "ULog*",
+        "BootObservation_*",
+        "ImageConfirm_*",
+        "Confirm_*",
+        "ImageVerify_*"
+      ],
+      "reason": "The STM32 CAN driver owns hardware queues and recovery only; it cannot depend on transport, protocol, OTA, security, or logging policy"
+    },
+    {
+      "name": "can-transport-must-not-depend-on-protocol",
+      "from": [
+        "transport/can_transport.c",
+        "transport/can_transport.h"
+      ],
+      "allowed_project_includes": [
+        "can_transport.h",
+        "can_frame.h",
+        "can_driver.h"
+      ],
+      "forbid_includes": [
+        "isotp.h",
+        "uds_server.h",
+        "uds_read_did.h",
+        "uds_msg.h",
+        "download.h",
+        "security_*.h"
+      ],
+      "forbidden_symbols": [
+        "ISOTP_*",
+        "isotp_*",
+        "UDS_*",
+        "uds_*",
+        "Download_*",
+        "download_*",
+        "Security*",
+        "security_*",
+        "BootObservation_*",
+        "ImageConfirm_*",
+        "Confirm_*",
+        "ImageVerify_*"
+      ],
+      "reason": "the CAN transport abstraction cannot know ISO-TP, UDS, OTA, security, or logging policy"
+    },
+    {
+      "name": "isotp-must-not-call-uds-or-logging",
+      "from": [
+        "transport/isotp_stm32.c"
+      ],
+      "allowed_project_includes": [
+        "isotp_user.h",
+        "isotp_defines.h",
+        "can_network.h",
+        "can_transport.h",
+        "stm32u5xx_hal.h"
+      ],
+      "forbid_includes": [
+        "uds_server.h",
+        "uds_read_did.h",
+        "uds_msg.h",
+        "download.h",
+        "security_*.h"
+      ],
+      "forbidden_symbols": [
+        "UDS_*",
+        "uds_*",
+        "Download_*",
+        "download_*",
+        "Security*",
+        "security_*",
+        "BootObservation_*",
+        "ImageConfirm_*",
+        "Confirm_*",
+        "ImageVerify_*"
+      ],
+      "forbidden_patterns": [
+        {
+          "regex": "__attribute__\\s*\\(\\(\\s*weak\\s*\\)\\)",
+          "description": "weak upper-layer delivery callback"
+        }
+      ],
+      "reason": "the ISO-TP platform hooks provide only the upstream-required STM32 CAN, time, and debug services"
+    },
+    {
+      "name": "ulog-can-wire-must-remain-a-raw-frame-codec",
+      "from": [
+        "transport/ulog_can_wire.c",
+        "transport/ulog_can_wire.h"
+      ],
+      "allowed_project_includes": [
+        "ulog_can_wire.h",
+        "can_frame.h",
+        "can_network.h"
+      ],
+      "forbid_includes": [
+        "can_driver.h",
+        "can_transport.h",
+        "isotp.h",
+        "uds_server.h",
+        "uds_read_did.h",
+        "download.h",
+        "security_*.h"
+      ],
+      "forbidden_symbols": [
+        "CAN_Transport_*",
+        "ISOTP_*",
+        "UDS_*",
+        "Download_*",
+        "Security*"
+      ],
+      "reason": "the ULog CAN codec owns only raw-frame fragmentation and cannot acquire a driver, ISO-TP, UDS, or OTA dependency"
+    },
+    {
+      "name": "ulog-can-must-bridge-only-logger-and-driver",
+      "from": [
+        "transport/ulog_can.c",
+        "transport/ulog_can.h"
+      ],
+      "allowed_project_includes": [
+        "ulog_can.h",
+        "ulog_can_wire.h",
+        "can_driver.h"
+      ],
+      "forbid_includes": [
+        "can_transport.h",
+        "isotp.h",
+        "uds_server.h",
+        "uds_read_did.h",
+        "download.h",
+        "security_*.h"
+      ],
+      "forbidden_symbols": [
+        "CAN_Transport_*",
+        "ISOTP_*",
+        "UDS_*",
+        "Download_*",
+        "Security*"
+      ],
+      "reason": "the ULog CAN output may adapt native ULog records to the non-blocking CAN driver, but cannot acquire protocol or OTA policy"
+    },
+    {
+      "name": "gateway-log-header-must-remain-an-ulog-wrapper",
+      "from": [
+        "transport/gateway_log.h"
+      ],
+      "allowed_project_includes": [],
+      "reason": "Gateway log macros may depend on native ULog only and must not acquire application or transport policy"
+    },
+    {
+      "name": "uds-read-did-must-remain-read-only",
+      "from": [
+        "uds/uds_read_did.c"
+      ],
+      "allowed_project_includes": [
+        "uds_read_did.h",
+        "uds_protocol.h",
+        "boot_observation.h",
+        "download.h",
+        "image_confirm.h",
+        "sysflash.h",
+        "uds_msg.h"
+      ],
+      "forbid_includes": [
+        "main.h",
+        "fdcan.h",
+        "can_driver.h",
+        "can_frame.h",
+        "can_network.h",
+        "can_transport.h",
+        "flash_map.h",
+        "image_verify.h",
+        "isotp.h",
+        "security_access.h",
+        "security_token.h",
+        "security_token_cose.h",
+        "uds_server.h"
+      ],
+      "forbidden_symbols": [
+        "Error_Handler",
+        "HAL_FDCAN_*",
+        "CAN_*",
+        "can_*",
+        "ISOTP_*",
+        "isotp_*",
+        "UDS_Init",
+        "UDS_Poll",
+        "UDS_Dispatch",
+        "UDS_Send*",
+        "UDS_Handle*",
+        "Security*",
+        "security_*"
+      ],
+      "forbidden_patterns": [
+        {
+          "regex": "\\bDownload_(?!(?:GetStatus|GetBootResult|IsPrepared)\\b)[A-Za-z_]\\w*",
+          "description": "download operation outside the read-only query API"
+        },
+        {
+          "regex": "\\bImageConfirm_(?!GetLastStartupResult\\b)[A-Za-z_]\\w*",
+          "description": "confirmation operation outside the read-only query API"
+        },
+        {
+          "regex": "\\bUDS_Msg_(?!WriteBe(?:16|32)\\b)[A-Za-z_]\\w*",
+          "description": "wire operation outside response byte-order encoding"
+        }
+      ],
+      "reason": "ReadDataByIdentifier payload construction is a read-only query leaf and cannot own dispatcher, transport, state mutation, or logging policy"
+    },
+    {
+      "name": "uds-read-did-header-must-remain-contract-free",
+      "from": [
+        "uds/uds_read_did.h"
+      ],
+      "allowed_project_includes": [],
+      "reason": "the ReadDID public API uses only standard C types and cannot leak UDS protocol or domain contracts"
+    },
+    {
+      "name": "uds-service-must-not-bypass-isotp",
+      "from": [
+        "uds/uds_server.c"
+      ],
+      "allowed_project_includes": [
+        "uds_server.h",
+        "uds_protocol.h",
+        "boot_config.h",
+        "download.h",
+        "isotp.h",
+        "gateway_log.h",
+        "security_access.h",
+        "uds_read_did.h",
+        "uds_msg.h"
+      ],
+      "forbid_includes": [
+        "main.h",
+        "fdcan.h",
+        "can_driver.h",
+        "can_transport.h"
+      ],
+      "forbidden_symbols": [
+        "Error_Handler",
+        "BootObservation_*",
+        "ImageConfirm_*",
+        "CAN_*",
+        "HAL_FDCAN_*"
+      ],
+      "reason": "UDS services use ISO-TP and download APIs; they cannot bypass those boundaries to call CAN transport, boot storage, hardware drivers, HAL, or the composition root"
+    },
+    {
+      "name": "uds-header-must-remain-contract-free",
+      "from": [
+        "uds/uds_server.h"
+      ],
+      "allowed_project_includes": [],
+      "reason": "the UDS public API uses only standard C types and cannot leak protocol or security contracts"
+    },
+    {
+      "name": "uds-wire-must-remain-a-leaf",
+      "from": [
+        "uds/uds_msg.c",
+        "uds/uds_msg.h"
+      ],
+      "allowed_project_includes": [
+        "uds_msg.h"
+      ],
+      "forbid_includes": [
+        "main.h",
+        "fdcan.h",
+        "boot_observation.h",
+        "image_confirm.h",
+        "can_driver.h",
+        "can_frame.h",
+        "can_network.h",
+        "can_transport.h",
+        "confirm.h",
+        "download.h",
+        "flash_map.h",
+        "image_verify.h",
+        "isotp.h",
+        "security_access.h",
+        "security_token.h",
+        "security_token_cose.h",
+        "uds_server.h",
+        "uds_read_did.h"
+      ],
+      "forbidden_symbols": [
+        "Error_Handler",
+        "BootObservation_*",
+        "ImageConfirm_*",
+        "CAN_*",
+        "Confirm_*",
+        "Download_*",
+        "flash_area_*",
+        "ImageVerify_*",
+        "ISOTP_*",
+        "SecurityAccess_*",
+        "SecurityToken_*",
+        "security_*",
+        "UDS_Init",
+        "UDS_Poll",
+        "UDS_Dispatch",
+        "UDS_ReadDid_*"
+      ],
+      "reason": "UDS wire byte-order helpers are stateless leaves and cannot own protocol, domain, transport, logging, or hardware policy"
+    },
+    {
+      "name": "can-frame-contract-must-remain-neutral",
+      "from": [
+        "transport/can_frame.h"
+      ],
+      "allowed_project_includes": [],
+      "forbidden_symbols": [
+        "CAN_Transport_*",
+        "ISOTP_*",
+        "UDS_*",
+        "Download_*",
+        "Security*",
+        "Log_*",
+        "BootObservation_*",
+        "ImageConfirm_*",
+        "Confirm_*",
+        "flash_area_*",
+        "ImageVerify_*"
+      ],
+      "reason": "the CAN frame value contract is transport-neutral and cannot acquire protocol, OTA, security, logging, or persistence behavior"
+    },
+    {
+      "name": "can-driver-contract-must-remain-below-transport",
+      "from": [
+        "transport/can_driver.h"
+      ],
+      "allowed_project_includes": [
+        "can_frame.h"
+      ],
+      "forbidden_symbols": [
+        "CAN_Transport_*",
+        "ISOTP_*",
+        "UDS_*",
+        "Download_*",
+        "Security*",
+        "Log_*",
+        "BootObservation_*",
+        "ImageConfirm_*",
+        "Confirm_*",
+        "flash_area_*",
+        "ImageVerify_*"
+      ],
+      "reason": "the CAN driver contract exposes frame I/O only and cannot depend on transport, protocol, OTA, security, logging, or persistence policy"
+    },
+    {
+      "name": "flash-map-must-not-depend-on-ota-or-protocol",
+      "from": [
+        "boot/flash_map.c"
+      ],
+      "allowed_project_includes": [
+        "flash_map.h",
+        "sysflash.h"
+      ],
+      "forbidden_symbols": [
+        "BootObservation_*",
+        "ImageConfirm_*",
+        "CAN_*",
+        "Confirm_*",
+        "Download_*",
+        "ImageVerify_*",
+        "ISOTP_*",
+        "Log_*",
+        "Security*",
+        "UDS_*"
+      ],
+      "reason": "the mini_mcuboot-derived flash map owns raw Flash areas only and cannot acquire boot, download, verification, protocol, or security policy"
+    },
+    {
+      "name": "flash-map-header-must-remain-contract-free",
+      "from": [
+        "boot/flash_map.h"
+      ],
+      "allowed_project_includes": [],
+      "reason": "the mini_mcuboot flash-map API uses only standard C types and cannot leak board layout contracts"
+    },
+    {
+      "name": "boot-artifacts-must-not-depend-on-download-or-protocol",
+      "from": [
+        "boot/boot_observation.c",
+        "boot/boot_observation.h",
+        "boot/image_confirm.c",
+        "boot/image_confirm.h"
+      ],
+      "allowed_project_includes": [
+        "boot_observation.h",
+        "image_confirm.h",
+        "flash_map.h",
+        "boot_config.h"
+      ],
+      "forbidden_symbols": [
+        "CAN_*",
+        "Confirm_*",
+        "Download_*",
+        "ImageVerify_*",
+        "ISOTP_*",
+        "Log_*",
+        "Security*",
+        "UDS_*"
+      ],
+      "reason": "the image confirmation adapter may access active-image storage only; it cannot own download, trailer validation, protocol, logging, or security policy"
+    },
+    {
+      "name": "download-domain-must-not-depend-on-uds-or-security-services",
+      "from": [
+        "download/download.c"
+      ],
+      "allowed_project_includes": [
+        "download.h",
+        "erase_job.h",
+        "boot_observation.h",
+        "flash_map.h",
+        "crc32.h",
+        "sysflash.h"
+      ],
+      "forbidden_symbols": [
+        "CAN_*",
+        "Confirm_*",
+        "ISOTP_*",
+        "Log_*",
+        "Security*",
+        "UDS_*"
+      ],
+      "reason": "the download domain coordinates persistence and boot artifacts, but cannot acquire UDS transport, logging, confirmation, or security services"
+    },
+    {
+      "name": "download-header-must-remain-contract-free",
+      "from": [
+        "download/download.h"
+      ],
+      "allowed_project_includes": [],
+      "reason": "the download public API exposes only standard C types and cannot leak boot, memory, lifecycle, or security contracts"
+    },
+    {
+      "name": "erase-job-must-use-the-flash-map-interface-only",
+      "from": [
+        "download/erase_job.c"
+      ],
+      "allowed_project_includes": [
+        "erase_job.h",
+        "flash_map.h"
+      ],
+      "forbidden_symbols": [
+        "CAN_*",
+        "Confirm_*",
+        "Download_*",
+        "ImageVerify_*",
+        "ISOTP_*",
+        "Log_*",
+        "Security*",
+        "UDS_*"
+      ],
+      "reason": "the erase job owns RAM state only and reaches Flash geometry solely through the mini_mcuboot flash-map interface"
+    },
+    {
+      "name": "erase-job-header-must-remain-contract-free",
+      "from": [
+        "download/erase_job.h"
+      ],
+      "allowed_project_includes": [],
+      "reason": "the erase job exposes no competing Flash contract"
+    },
+    {
+      "name": "security-token-must-not-depend-on-uds-or-ota-flow",
+      "from": [
+        "security/security_token.c",
+        "security/security_token_cose.c",
+        "security/security_crypto_port.c"
+      ],
+      "allowed_project_includes": [
+        "security_token.h",
+        "security_token_cose.h",
+        "security_crypto_port.h",
+        "security_token_profile.h"
+      ],
+      "forbidden_symbols": [
+        "BootObservation_*",
+        "ImageConfirm_*",
+        "CAN_*",
+        "Confirm_*",
+        "Download_*",
+        "flash_area_*",
+        "ImageVerify_*",
+        "ISOTP_*",
+        "Log_*",
+        "SecurityAccess_*",
+        "UDS_*"
+      ],
+      "reason": "Token validation and its crypto port cannot depend on SecurityAccess state, UDS, transport, storage, or OTA-flow orchestration"
+    },
+    {
+      "name": "security-token-header-must-expose-verify-contract-only",
+      "from": [
+        "security/security_token.h"
+      ],
+      "allowed_project_includes": [
+        "security_token_profile.h"
+      ],
+      "forbidden_symbols": [
+        "SecurityToken_LibraryVerify"
+      ],
+      "reason": "the public Token API may expose profile value types but cannot leak the internal COSE verification seam"
+    },
+    {
+      "name": "security-token-cose-interface-must-depend-on-profile-types-only",
+      "from": [
+        "security/security_token_cose.h"
+      ],
+      "allowed_project_includes": [
+        "security_token_profile.h"
+      ],
+      "reason": "the internal COSE interface may use only Token profile types, never UDS or OTA-flow contracts"
+    },
+    {
+      "name": "security-access-must-not-depend-on-uds-or-ota-flow",
+      "from": [
+        "security/security_access.c"
+      ],
+      "allowed_project_includes": [
+        "security_access.h",
+        "security_token.h"
+      ],
+      "forbidden_symbols": [
+        "BootObservation_*",
+        "ImageConfirm_*",
+        "CAN_*",
+        "Confirm_*",
+        "Download_*",
+        "flash_area_*",
+        "ImageVerify_*",
+        "ISOTP_*",
+        "Log_*",
+        "UDS_*"
+      ],
+      "reason": "SecurityAccess owns unlock state and validation delegation but cannot call UDS dispatch, transport, storage, or download policy"
+    },
+    {
+      "name": "security-access-header-must-expose-challenge-contract-only",
+      "from": [
+        "security/security_access.h"
+      ],
+      "allowed_project_includes": [
+        "shared/uds_protocol.h"
+      ],
+      "reason": "the SecurityAccess public API exposes only the shared seed challenge shape, not policy or implementation contracts"
+    },
+    {
+      "name": "security-access-entropy-adapter-must-remain-a-hardware-leaf",
+      "from": [
+        "security/security_access_entropy_stm32.c"
+      ],
+      "allowed_project_includes": [
+        "security_access_entropy.h"
+      ],
+      "forbidden_symbols": [
+        "BootObservation_*",
+        "ImageConfirm_*",
+        "CAN_*",
+        "Confirm_*",
+        "Download_*",
+        "flash_area_*",
+        "ImageVerify_*",
+        "ISOTP_*",
+        "Log_*",
+        "UDS_*"
+      ],
+      "reason": "the target entropy adapter owns only the board RNG handle and cannot depend on UDS or OTA-flow orchestration"
+    },
+    {
+      "name": "security-access-entropy-header-must-remain-neutral",
+      "from": [
+        "security/security_access_entropy.h"
+      ],
+      "allowed_project_includes": [],
+      "reason": "the entropy initialization contract exposes only a standard boolean result"
+    },
+    {
+      "name": "sysflash-contract-must-remain-neutral",
+      "from": [
+        "boot/sysflash.h"
+      ],
+      "allowed_project_includes": [],
+      "reason": "physical memory constants cannot depend on a software domain"
+    },
+    {
+      "name": "boot-contract-must-remain-below-update-domains",
+      "from": [
+        "boot/boot_config.h"
+      ],
+      "allowed_project_includes": [
+        "sysflash.h"
+      ],
+      "reason": "active-slot and image-confirmation constants may use sysflash only"
+    },
+    {
+      "name": "security-token-profile-must-depend-only-on-shared-contracts",
+      "from": [
+        "security/security_token_profile.h"
+      ],
+      "allowed_project_includes": [
+        "../../shared/security_token_profile.h",
+        "shared/security_access_level.h",
+        "shared/uds_protocol.h"
+      ],
+      "reason": "Token claims and result values may depend only on shared challenge and access-level contracts"
+    },
+    {
+      "name": "security-crypto-port-header-must-remain-neutral",
+      "from": [
+        "security/security_crypto_port.h"
+      ],
+      "allowed_project_includes": [],
+      "reason": "The crypto port interface exposes only standard C types and cannot depend on a software domain"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+[Unit]
+Description=ECU OTA Remote Handler orchestrator
+Requires=ecu-ota-token-signer.service
+After=ecu-ota-token-signer.service
+Before=ecu-ota-swupdate.service
+ConditionPathExists=/etc/ecu-ota/orchestrator.conf
+ConditionPathExists=/run/media/mmcblk0p6/ecu-ota/bin/ecu-ota-orchestrator
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/ecu-ota/orchestrator.conf
+ExecStartPre=/usr/libexec/ecu-ota/wait-for-token-signer
+ExecStart=/run/media/mmcblk0p6/ecu-ota/bin/ecu-ota-orchestrator --job-id ${ECU_OTA_JOB_ID} --expected-size ${ECU_OTA_EXPECTED_SIZE} --expected-sha256 ${ECU_OTA_EXPECTED_SHA256} --work-root ${ECU_OTA_WORK_ROOT} --ifname ${ECU_OTA_CAN_IFNAME} --endpoint ${ECU_OTA_REMOTE_ENDPOINT} --signer-endpoint ${ECU_TOKEN_SIGNER_ENDPOINT} --signer-uid ${ECU_TOKEN_SIGNER_UID} --signer-gid ${ECU_TOKEN_SIGNER_GID} --signer-socket-gid ${ECU_TOKEN_SIGNER_SOCKET_GID} --signer-timeout-ms ${ECU_TOKEN_SIGNER_TIMEOUT_MS}
+Restart=no
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

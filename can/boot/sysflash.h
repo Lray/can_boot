@@ -1,0 +1,64 @@
+#ifndef SYSFLASH_H
+#define SYSFLASH_H
+
+/* Flash areas follow mini_mcuboot's sysflash / flash-map convention. */
+#define FLASH_DEVICE_INTERNAL_FLASH 0x7FU
+
+#define FLASH_AREA_BOOTLOADER 0U
+#define FLASH_AREA_IMAGE_0 1U
+#define FLASH_AREA_IMAGE_1 2U
+#define FLASH_AREA_BOOT_USER 3U
+#define FLASH_AREA_DOWNLOAD_JOURNAL 4U
+
+/* Logical application-slot numbers are persisted in boot/download records. */
+#define SLOT_A 0U
+#define SLOT_B 1U
+#define SLOT_INVALID 0xFFU
+
+#define FLASH_BASE_ADDRESS 0x08000000U
+#define FLASH_SIZE_BYTES 0x00200000U
+#define FLASH_PAGE_SIZE_BYTES 0x00002000U
+#define FLASH_PROGRAM_UNIT 16U
+
+/* STM32U5A9 application Flash partition layout. */
+#define FLASH_AREA_BOOTLOADER_ADDRESS FLASH_BASE_ADDRESS
+#define FLASH_AREA_BOOTLOADER_SIZE 0x00010000U
+#define FLASH_AREA_IMAGE_0_ADDRESS \
+    (FLASH_AREA_BOOTLOADER_ADDRESS + FLASH_AREA_BOOTLOADER_SIZE)
+#define FLASH_AREA_IMAGE_0_SIZE 0x00020000U
+#define FLASH_AREA_IMAGE_1_ADDRESS \
+    (FLASH_AREA_IMAGE_0_ADDRESS + FLASH_AREA_IMAGE_0_SIZE)
+#define FLASH_AREA_IMAGE_1_SIZE 0x00020000U
+#define FLASH_AREA_BOOT_USER_SIZE FLASH_PAGE_SIZE_BYTES
+#define FLASH_AREA_BOOT_USER_ADDRESS \
+    (FLASH_BASE_ADDRESS + FLASH_SIZE_BYTES - FLASH_AREA_BOOT_USER_SIZE)
+#define FLASH_AREA_DOWNLOAD_JOURNAL_SIZE (2U * FLASH_PAGE_SIZE_BYTES)
+#define FLASH_AREA_DOWNLOAD_JOURNAL_ADDRESS \
+    (FLASH_AREA_BOOT_USER_ADDRESS - FLASH_AREA_DOWNLOAD_JOURNAL_SIZE)
+#define BOOT_USER_AREA_START FLASH_AREA_BOOT_USER_ADDRESS
+
+#if (FLASH_AREA_IMAGE_0_SIZE != FLASH_AREA_IMAGE_1_SIZE)
+#error "MCUboot trailer offsets require equal image-area sizes."
+#endif
+
+#if (FLASH_AREA_BOOT_USER_ADDRESS != 0x081FE000U)
+#error "Boot user area address changed."
+#endif
+
+#if (FLASH_AREA_IMAGE_1_ADDRESS != \
+     (FLASH_AREA_IMAGE_0_ADDRESS + FLASH_AREA_IMAGE_0_SIZE))
+#error "Image 1 must follow image 0."
+#endif
+
+#if ((FLASH_AREA_DOWNLOAD_JOURNAL_ADDRESS + \
+      FLASH_AREA_DOWNLOAD_JOURNAL_SIZE) != \
+     FLASH_AREA_BOOT_USER_ADDRESS)
+#error "Download journal must precede the boot-user area."
+#endif
+
+#if ((FLASH_AREA_IMAGE_1_ADDRESS + FLASH_AREA_IMAGE_1_SIZE) > \
+     FLASH_AREA_DOWNLOAD_JOURNAL_ADDRESS)
+#error "Application image areas overlap download journal storage."
+#endif
+
+#endif /* SYSFLASH_H */

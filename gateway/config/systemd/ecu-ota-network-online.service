@@ -1,0 +1,12 @@
+[Unit]
+Description=Wait until ECU OTA Wi-Fi has an IPv4 route
+Requires=ecu-ota-wpa-supplicant.service
+After=ecu-ota-wpa-supplicant.service systemd-networkd.service
+Before=ecu-ota-swupdate.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/systemd/systemd-networkd-wait-online --interface=wlan0:degraded --timeout=120
+
+[Install]
+WantedBy=multi-user.target

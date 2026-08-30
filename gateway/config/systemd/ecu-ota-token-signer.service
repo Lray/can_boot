@@ -1,0 +1,17 @@
+[Unit]
+Description=ECU OTA OP-TEE token signer
+Requires=tee-supplicant.service
+After=tee-supplicant.service
+ConditionPathExists=/dev/tee0
+ConditionPathExists=/run/media/mmcblk0p6/ecu-ota/bin/token-signer-daemon
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/ecu-ota/signer.conf
+ExecStart=/run/media/mmcblk0p6/ecu-ota/bin/token-signer-daemon --endpoint ${ECU_TOKEN_SIGNER_ENDPOINT} --uid ${ECU_TOKEN_SIGNER_UID} --gid ${ECU_TOKEN_SIGNER_GID} --socket-gid ${ECU_TOKEN_SIGNER_SOCKET_GID} --client-uid ${ECU_TOKEN_SIGNER_CLIENT_UID} --client-gid ${ECU_TOKEN_SIGNER_CLIENT_GID} --idle-timeout 86400
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

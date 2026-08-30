@@ -1,0 +1,29 @@
+CompileFlags:
+  CompilationDatabase: build/Debug-slot0
+Diagnostics:
+  ClangTidy:
+    Add:
+      - cert-*
+      - bugprone-*
+      - misc-no-recursion
+      - readability-identifier-naming
+    Remove:
+      - cert-err58-cpp
+      - cert-msc30-c
+      - cert-msc32-c
+      - cert-msc50-cpp
+      - cert-msc51-cpp
+      - cert-dcl51-cpp
+    CheckOptions:
+      readability-identifier-naming.MacroDefinitionCase: UPPER_CASE
+      readability-identifier-naming.EnumConstantCase: UPPER_CASE
+      readability-identifier-naming.VariableCase: lower_case
+      readability-identifier-naming.PrivateMemberPrefix: m_
+      readability-identifier-naming.ClassCase: CamelCase
+  Suppress:
+    - Drivers/*
+    - ThirdParty/*
+Index:
+  Background: Build
+Hover:
+  ShowAKA: 'Yes'

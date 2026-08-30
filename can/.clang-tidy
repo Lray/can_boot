@@ -1,0 +1,21 @@
+Checks: >
+  cert-*,
+  -cert-err58-cpp,
+  -cert-msc30-c,
+  -cert-msc32-c,
+  -cert-msc50-cpp,
+  -cert-msc51-cpp,
+  -cert-dcl51-cpp,
+  bugprone-*,
+  -bugprone-reserved-identifier,
+  misc-no-recursion,
+  readability-identifier-naming
+
+WarningsAsErrors: >
+  cert-*,
+  bugprone-*
+
+CheckOptions:
+  readability-identifier-naming.MacroDefinitionCase: UPPER_CASE
+  readability-identifier-naming.EnumConstantCase: UPPER_CASE
+  readability-identifier-naming.VariableCase: lower_case

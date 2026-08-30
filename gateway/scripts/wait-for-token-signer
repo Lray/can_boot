@@ -1,0 +1,14 @@
+#!/bin/sh
+set -efu
+
+endpoint=/run/ecu-token-signer/v1.sock
+attempt=0
+
+while [ "$attempt" -lt 30 ]; do
+    [ -S "$endpoint" ] && exit 0
+    attempt=$((attempt + 1))
+    sleep 1
+done
+
+printf '%s\n' 'ecu-ota: token signer endpoint did not become ready' >&2
+exit 1

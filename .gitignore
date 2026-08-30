@@ -1,0 +1,22 @@
+# Repository-level generated output
+**/.git/
+**/.claude/
+**/build/
+**/build-*/
+**/out/
+**/Debug/
+**/CMakeFiles/
+**/CMakeCache.txt
+**/cmake_install.cmake
+**/__pycache__/
+**/.pytest_cache/
+**/*.pyc
+**/*.o
+**/*.d
+**/*.elf
+**/*.map
+
+# Local evidence and temporary output
+**/results/
+**/tmp/
+**/tmp_*/

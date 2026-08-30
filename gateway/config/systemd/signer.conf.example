@@ -1,0 +1,9 @@
+# Install as /etc/ecu-ota/signer.conf with owner root and mode 0640.
+# The daemon starts as root only long enough to connect to OP-TEE, create the
+# socket safely, then drops to ECU_TOKEN_SIGNER_UID/GID itself.
+ECU_TOKEN_SIGNER_ENDPOINT=/run/ecu-token-signer/v1.sock
+ECU_TOKEN_SIGNER_UID=200
+ECU_TOKEN_SIGNER_GID=200
+ECU_TOKEN_SIGNER_SOCKET_GID=201
+ECU_TOKEN_SIGNER_CLIENT_UID=0
+ECU_TOKEN_SIGNER_CLIENT_GID=0

@@ -1,0 +1,18 @@
+# Install as /etc/ecu-ota/hawkbit.conf with owner root and mode 0600.
+#
+# This is device-side Suricatta configuration.  HAWKBIT_SERVER_URL must be
+# the fixed LAN address that the board can reach; do not use a WSL NAT address
+# or 127.0.0.1.  The HawkBit Management API credentials do not belong here.
+HAWKBIT_SERVER_URL=http://REPLACE_WITH_FIXED_WINDOWS_LAN_IPV4:18080
+HAWKBIT_TENANT=DEFAULT
+HAWKBIT_TARGET_ID=REPLACE_WITH_STABLE_CONTROLLER_ID
+HAWKBIT_TARGET_TOKEN=REPLACE_WITH_32_LOWERCASE_HEX_TOKEN
+
+# These are passed unchanged to the official SWUpdate 2019.11 Suricatta
+# client.  The trust anchor is public, but is kept root-owned to make the
+# deployed trust set explicit.
+SWUPDATE_TRUST_KEY=/etc/ecu-ota/trust/swu-release.pem
+SWUPDATE_LOG_LEVEL=3
+SWUPDATE_POLL_DELAY=5
+SWUPDATE_RETRIES=5
+SWUPDATE_RETRY_WAIT=2

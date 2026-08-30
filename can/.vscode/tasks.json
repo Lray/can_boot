@@ -1,0 +1,101 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "CMake: Configure Debug (Direct)",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--preset",
+                "Debug"
+            ],
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "CMake: Build Debug (Direct)",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "Debug"
+            ],
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "CMake: Clean Debug (Direct)",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "build/Debug",
+                "--target",
+                "clean"
+            ],
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "CMake: Rebuild Debug (Direct)",
+            "dependsOn": [
+                "CMake: Clean Debug (Direct)",
+                "CMake: Build Debug (Direct)"
+            ],
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "CMake: Configure Debug-slot0 (Boot)",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--preset",
+                "Debug-slot0"
+            ],
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "CMake: Build Debug-slot0 (Boot)",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "Debug-slot0"
+            ],
+            "dependsOn": [
+                "CMake: Configure Debug-slot0 (Boot)"
+            ],
+            "dependsOrder": "sequence",
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "Flash: J-Link",
+            "type": "shell",
+            "command": "JLinkExe",
+            "args": [
+                "-device",
+                "STM32U5A9NJHxQ",
+                "-if",
+                "SWD",
+                "-speed",
+                "8000",
+                "-CommanderScript",
+                "${workspaceFolder}/tools/flash.jlink"
+            ],
+            "group": "build",
+            "problemMatcher": [],
+            "dependsOn": [
+                "CMake: Build Debug (Direct)"
+            ]
+        }
+    ]
+}
