@@ -3,7 +3,7 @@ set -efu
 
 fail()
 {
-    printf '%s\n' "ecu-ota: $1" >&2
+    printf '%s\n' "mcu-update: $1" >&2
     exit 2
 }
 

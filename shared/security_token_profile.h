@@ -4,17 +4,17 @@
 #include <stdint.h>
 
 /*
- * Shared OTA-entry COSE_Sign1 CWT claim contract between the ECU firmware
+ * Shared OTA-entry COSE_Sign1 CWT claim contract between the MCU firmware
  * (can/) and the Linux gateway (gateway/).  Single source of truth for the
  * token profile values; both trees include it and must not redefine these
  * macros locally.
  *
  * The token binds one fact: the signer authorized THIS seed challenge.  The
- * ECU verifies the ES256 signature against its provisioned public key and
+ * MCU verifies the ES256 signature against its provisioned public key and
  * compares both claims against its own outstanding seed; no other claims
  * carry decision content.
  *
- * Naming follows the ECU tree (UPPER_SNAKE with U suffix).
+ * Naming follows the MCU tree (UPPER_SNAKE with U suffix).
  */
 
 #define SECURITY_TOKEN_MAX_SIZE 480U

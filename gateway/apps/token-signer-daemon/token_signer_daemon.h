@@ -6,7 +6,7 @@
 
 #include "token_signer_tee.h"
 
-#define TOKEN_SIGNER_DAEMON_DEFAULT_ENDPOINT "/run/ecu-token-signer/v1.sock"
+#define TOKEN_SIGNER_DAEMON_DEFAULT_ENDPOINT "/run/mcu-token-signer/v1.sock"
 
 typedef struct
 {

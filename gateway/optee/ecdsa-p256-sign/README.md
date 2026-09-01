@@ -39,7 +39,8 @@ and signing key as the SDK demos:
 ./build.sh {SDK}/platform/allwinner/security/optee/demo/ecdsa-p256-sign
 ```
 
-or standalone, see `gateway/scripts/build_ta_sdk.sh`. Output:
+The repository-local `Makefile` accepts explicit `TA_DEV_KIT_DIR` and
+`CROSS_COMPILE_TA` values for a standalone SDK build. Output:
 
 ```text
 ta/out/ta/724b12aa-6e74-4779-bf3a-1580a076fed3.ta

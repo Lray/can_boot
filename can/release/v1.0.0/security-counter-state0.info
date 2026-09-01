@@ -1,0 +1,7 @@
+source=stm32u5-boot-security-counter
+flash_address=0x081F6000
+flash_page_size=0x2000
+record_size=64
+record_sequence=0
+security_counter=0
+sha256=313033115a9ae71d13abafb48b282ada8c18aa85fe83bcae5cf3deca3580e517

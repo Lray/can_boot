@@ -5,12 +5,12 @@
 #include "payload_id_format.h"
 
 /*
- * Shared UDS wire contract between the ECU firmware (can/) and the Linux
+ * Shared UDS wire contract between the MCU firmware (can/) and the Linux
  * gateway (gateway/).  This header is the single source of truth for the
  * diagnostic protocol values; both trees include it and must not redefine
  * these macros locally.
  *
- * Naming follows the ECU tree (UPPER_SNAKE with U suffix).
+ * Naming follows the MCU tree (UPPER_SNAKE with U suffix).
  */
 
 /* --- Session timing (ISO 14229) --- */
@@ -20,11 +20,11 @@
 #define P2_STAR_SERVER_DEFAULT_WIRE (P2_STAR_SERVER_DEFAULT_MS / 10U)
 #define UDS_RESPONSE_PENDING_REPEAT_INTERVAL_MS 1500U
 #define UDS_RESPONSE_PENDING_MAX_COUNT 8U
-#define S3_SERVER_DEFAULT 5000U
+#define UDS_SERVER_DEFAULT_S3_MS 5100U
 
 /* --- Service identifiers --- */
 #define SID_DIAGNOSTIC_SESSION_CONTROL 0x10U
-#define SID_ECU_RESET 0x11U
+#define SID_MCU_RESET 0x11U
 #define SID_READ_DATA_BY_IDENTIFIER 0x22U
 #define SID_SECURITY_ACCESS 0x27U
 #define SID_ROUTINE_CONTROL 0x31U
@@ -40,7 +40,7 @@
 
 /* --- Positive response SIDs --- */
 #define SID_DIAGNOSTIC_SESSION_CONTROL_POS 0x50U
-#define SID_ECU_RESET_POS 0x51U
+#define SID_MCU_RESET_POS 0x51U
 #define SID_READ_DATA_BY_IDENTIFIER_POS 0x62U
 #define SID_SECURITY_ACCESS_POS 0x67U
 #define SID_ROUTINE_CONTROL_POS 0x71U

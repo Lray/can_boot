@@ -1,0 +1,11 @@
+# Install as /etc/mcu-update/mcu-updater.conf with owner root and mode 0640.
+# Device-local settings only. Release size, digest, and transaction identifiers
+# are deliberately absent and are derived at runtime for every verified image.
+MCU_UPDATE_WORK_ROOT=/run/mcu-update/jobs
+MCU_UPDATE_CAN_IFNAME=awlink0
+MCU_UPDATE_REMOTE_ENDPOINT=ipc:///run/mcu-update/remote-handler/mcu-v1
+MCU_TOKEN_SIGNER_ENDPOINT=/run/mcu-token-signer/v1.sock
+MCU_TOKEN_SIGNER_UID=200
+MCU_TOKEN_SIGNER_GID=200
+MCU_TOKEN_SIGNER_SOCKET_GID=201
+MCU_TOKEN_SIGNER_TIMEOUT_MS=1000

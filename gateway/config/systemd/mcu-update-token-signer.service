@@ -1,0 +1,17 @@
+[Unit]
+Description=MCU update OP-TEE token signer
+Requires=tee-supplicant.service
+After=tee-supplicant.service
+ConditionPathExists=/dev/tee0
+ConditionPathExists=/run/media/mmcblk0p6/mcu-update/bin/token-signer-daemon
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/mcu-update/signer.conf
+ExecStart=/run/media/mmcblk0p6/mcu-update/bin/token-signer-daemon --endpoint ${MCU_TOKEN_SIGNER_ENDPOINT} --uid ${MCU_TOKEN_SIGNER_UID} --gid ${MCU_TOKEN_SIGNER_GID} --socket-gid ${MCU_TOKEN_SIGNER_SOCKET_GID} --client-uid ${MCU_TOKEN_SIGNER_CLIENT_UID} --client-gid ${MCU_TOKEN_SIGNER_CLIENT_GID} --idle-timeout 86400
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

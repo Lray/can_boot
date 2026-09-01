@@ -27,7 +27,8 @@ static uint32_t first_response_timeout_ms(const UdsClient *client, size_t reques
 
 /* 本次 recv 等待 = min(wanted_ms, UDS_MAX_TRANSACTION_MS-elapsed)；
  * 返回 false 表示总预算（含 ResponsePending 重试）已耗尽。 */
-static bool clamp_receive_timeout(uint64_t elapsed_ms, uint32_t wanted_ms,
+static bool clamp_receive_timeout(const UdsClient *client, uint64_t now_ms,
+                                  uint64_t elapsed_ms, uint32_t wanted_ms,
                                   uint32_t *receive_timeout_ms)
 {
     uint64_t remaining_ms = 0u;
@@ -41,6 +42,20 @@ static bool clamp_receive_timeout(uint64_t elapsed_ms, uint32_t wanted_ms,
     if (remaining_ms < (uint64_t)*receive_timeout_ms)
     {
         *receive_timeout_ms = (uint32_t)remaining_ms;
+    }
+    if (client->operation_deadline_ms != 0u)
+    {
+        uint64_t operation_remaining_ms;
+
+        if (now_ms >= client->operation_deadline_ms)
+        {
+            return false;
+        }
+        operation_remaining_ms = client->operation_deadline_ms - now_ms;
+        if (operation_remaining_ms < (uint64_t)*receive_timeout_ms)
+        {
+            *receive_timeout_ms = (uint32_t)operation_remaining_ms;
+        }
     }
     if (*receive_timeout_ms == 0u)
     {
@@ -109,6 +124,12 @@ int uds_transaction_request(UdsClient *client, const uint8_t *request, size_t re
     timeout_ms = first_response_timeout_ms(client, request_len);
     transaction_start_ms = util_monotonic_ms();
 
+    if (client->operation_deadline_ms != 0u &&
+        transaction_start_ms >= client->operation_deadline_ms)
+    {
+        return UDS_ERR_TIMEOUT;
+    }
+
     if (client->transport->send(client->transport_ctx, request, request_len) != 0)
     {
         return UDS_ERR_TRANSPORT;
@@ -120,9 +141,11 @@ int uds_transaction_request(UdsClient *client, const uint8_t *request, size_t re
         size_t rx_len = 0u;
         int classify_result = 0;
 
-        if (!clamp_receive_timeout(
-                util_monotonic_ms() - transaction_start_ms, timeout_ms,
-                &receive_timeout_ms))
+        uint64_t now_ms = util_monotonic_ms();
+
+        if (!clamp_receive_timeout(client, now_ms,
+                                   now_ms - transaction_start_ms, timeout_ms,
+                                   &receive_timeout_ms))
         {
             return UDS_ERR_TIMEOUT;
         }

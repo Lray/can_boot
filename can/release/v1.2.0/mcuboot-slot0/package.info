@@ -1,0 +1,15 @@
+source=mcu-boot-valid-target-runtime
+boot_valid=yes
+target_slot=0
+payload_base=0x08010200
+header_size=0x200
+slot_size=0x20000
+trailer_offset=0x1FFC0
+trailer_state=pending
+image_size=131072
+image_version=1.2.0
+security_counter=2
+image_sha256=b64bf2d4d492fc292bc6e3ac0c37a5f4e0f43579b09772e541194050fd710a5b
+payload_input=E:\T527\can_boot\can\build\CubeIDE-slot0-v1.2.0\Can.bin
+payload_copy=E:\T527\can_boot\can\release\v1.2.0\mcuboot-slot0\payload-primary.bin
+key=E:\Simple_ST\Boot\keys\root-ec-p256.pem

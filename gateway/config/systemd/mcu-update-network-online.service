@@ -1,0 +1,12 @@
+[Unit]
+Description=Wait until MCU update Wi-Fi has an IPv4 route
+Requires=mcu-update-wpa-supplicant.service
+After=mcu-update-wpa-supplicant.service systemd-networkd.service
+Before=mcu-update-swupdate.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/systemd/systemd-networkd-wait-online --interface=wlan0:degraded --timeout=120
+
+[Install]
+WantedBy=multi-user.target

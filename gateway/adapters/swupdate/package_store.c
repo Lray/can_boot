@@ -62,11 +62,9 @@ static int parse_init_size(const char *command, size_t command_len, uint64_t *si
     return 0;
 }
 
-int package_store_init(PackageStore_t *store, int job_dir_fd, uint64_t expected_size,
-                      const uint8_t expected_sha256[PACKAGE_SHA256_SIZE])
+int package_store_init(PackageStore_t *store, int job_dir_fd)
 {
-    if (store == NULL || job_dir_fd < 0 || expected_sha256 == NULL || expected_size == 0u ||
-        expected_size > PACKAGE_STORE_MAX_SIZE)
+    if (store == NULL || job_dir_fd < 0)
     {
         return PACKAGE_STORE_ERR_INVALID_ARG;
     }
@@ -74,8 +72,6 @@ int package_store_init(PackageStore_t *store, int job_dir_fd, uint64_t expected_
     store->job_dir_fd = job_dir_fd;
     store->partial_dir_fd = -1;
     store->member_fd = -1;
-    store->expected_size = expected_size;
-    memcpy(store->expected_sha256, expected_sha256, sizeof(store->expected_sha256));
     store->state = PACKAGE_STORE_NEW;
     return 0;
 }
@@ -94,10 +90,10 @@ int package_store_handle_init(PackageStore_t *store, const char *command, size_t
         return PACKAGE_STORE_ERR_SEQUENCE;
     }
     rc = parse_init_size(command, command_len, &announced_size);
-    if (rc != 0 || announced_size != store->expected_size)
+    if (rc != 0)
     {
         fail_store(store);
-        return rc != 0 ? rc : PACKAGE_STORE_ERR_SIZE;
+        return rc;
     }
     if (mkdirat(store->job_dir_fd, PACKAGE_INPUT_PARTIAL_DIRECTORY, 0700) != 0)
     {
@@ -121,6 +117,7 @@ int package_store_handle_init(PackageStore_t *store, const char *command, size_t
         return PACKAGE_STORE_ERR_STORAGE;
     }
     store->received_size = 0u;
+    store->expected_size = announced_size;
     sha256_init(&store->sha256);
     store->state = PACKAGE_STORE_RECEIVING;
     return 0;
@@ -162,12 +159,7 @@ int package_store_handle_data(PackageStore_t *store, const char *command, size_t
         return 0;
     }
     sha256_final(&store->sha256, digest);
-    if (memcmp(digest, store->expected_sha256, sizeof(digest)) != 0)
-    {
-        memset(digest, 0, sizeof(digest));
-        fail_store(store);
-        return PACKAGE_STORE_ERR_HASH;
-    }
+    memcpy(store->image_sha256, digest, sizeof(store->image_sha256));
     memset(digest, 0, sizeof(digest));
     if (fchmod(store->member_fd, 0400) != 0 || fsync(store->member_fd) != 0 ||
         close(store->member_fd) != 0)
@@ -200,4 +192,33 @@ void package_store_abort(PackageStore_t *store)
     {
         fail_store(store);
     }
+}
+
+void package_store_discard(PackageStore_t *store)
+{
+    int input_fd;
+
+    if (store == NULL)
+    {
+        return;
+    }
+    if (store->state == PACKAGE_STORE_NEW || store->state == PACKAGE_STORE_RECEIVING)
+    {
+        fail_store(store);
+        return;
+    }
+    if (store->state != PACKAGE_STORE_COMPLETE)
+    {
+        return;
+    }
+    input_fd = openat(store->job_dir_fd, PACKAGE_INPUT_DIRECTORY,
+                      O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (input_fd >= 0)
+    {
+        (void)unlinkat(input_fd, PACKAGE_IMAGE_NAME, 0);
+        (void)close(input_fd);
+        (void)unlinkat(store->job_dir_fd, PACKAGE_INPUT_DIRECTORY, AT_REMOVEDIR);
+    }
+    memset(store->image_sha256, 0, sizeof(store->image_sha256));
+    store->state = PACKAGE_STORE_FAILED;
 }

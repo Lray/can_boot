@@ -1,0 +1,21 @@
+[Unit]
+Description=Single-MCU secure update service
+Requires=mcu-update-token-signer.service
+After=mcu-update-token-signer.service
+Before=mcu-update-swupdate.service
+ConditionPathExists=/etc/mcu-update/mcu-updater.conf
+ConditionPathExists=/run/media/mmcblk0p6/mcu-update/bin/mcu-updater
+
+[Service]
+Type=simple
+RuntimeDirectory=mcu-update/remote-handler mcu-update/jobs
+RuntimeDirectoryMode=0750
+EnvironmentFile=/etc/mcu-update/mcu-updater.conf
+ExecStartPre=/usr/libexec/mcu-update/wait-for-token-signer
+ExecStart=/run/media/mmcblk0p6/mcu-update/bin/mcu-updater --work-root ${MCU_UPDATE_WORK_ROOT} --ifname ${MCU_UPDATE_CAN_IFNAME} --endpoint ${MCU_UPDATE_REMOTE_ENDPOINT} --signer-endpoint ${MCU_TOKEN_SIGNER_ENDPOINT} --signer-uid ${MCU_TOKEN_SIGNER_UID} --signer-gid ${MCU_TOKEN_SIGNER_GID} --signer-socket-gid ${MCU_TOKEN_SIGNER_SOCKET_GID} --signer-timeout-ms ${MCU_TOKEN_SIGNER_TIMEOUT_MS}
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

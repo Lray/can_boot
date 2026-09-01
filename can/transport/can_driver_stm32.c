@@ -11,17 +11,17 @@
 #define CAN_RX_QUEUE_CAPACITY 32U
 #define CAN_FDCAN_PSR_ERROR_MASK (FDCAN_PSR_BO | FDCAN_PSR_EW | FDCAN_PSR_EP)
 
-static volatile uint32_t s_ecu_can_rx_count;
-static volatile uint32_t s_ecu_can_tx_count;
-static volatile uint32_t s_ecu_can_error_count;
-static volatile uint8_t s_ecu_can_rx_head;
-static volatile uint8_t s_ecu_can_rx_tail;
+static volatile uint32_t s_mcu_can_rx_count;
+static volatile uint32_t s_mcu_can_tx_count;
+static volatile uint32_t s_mcu_can_error_count;
+static volatile uint8_t s_mcu_can_rx_head;
+static volatile uint8_t s_mcu_can_rx_tail;
 /* Maps to CANopenNode CO_CANmodule_t members CANerrorStatus / errOld
  * (CANopenNode 301/CO_driver.h, Apache-2.0) for review traceability. */
-static volatile uint16_t s_ecu_can_error_status;
-static volatile uint32_t s_ecu_can_err_old;
-static can_frame_t s_ecu_can_rx_queue[CAN_RX_QUEUE_CAPACITY];
-static struct rt_mutex s_ecu_can_tx_lock;
+static volatile uint16_t s_mcu_can_error_status;
+static volatile uint32_t s_mcu_can_err_old;
+static can_frame_t s_mcu_can_rx_queue[CAN_RX_QUEUE_CAPACITY];
+static struct rt_mutex s_mcu_can_tx_lock;
 
 static uint32_t CAN_DlcToLength(uint32_t dlc)
 {
@@ -59,7 +59,7 @@ bool CAN_Start(uint32_t receive_id)
         return false;
     }
 
-    if (rt_mutex_init(&s_ecu_can_tx_lock, "can_tx", RT_IPC_FLAG_PRIO)
+    if (rt_mutex_init(&s_mcu_can_tx_lock, "can_tx", RT_IPC_FLAG_PRIO)
         != RT_EOK)
     {
         return false;
@@ -152,11 +152,11 @@ static CAN_ReturnError_t CAN_SendRawLocked(uint32_t std_id,
     status = HAL_FDCAN_AddMessageToTxFifoQ(fdcan_handle, &tx_header, tx_data);
     if (status != HAL_OK)
     {
-        s_ecu_can_error_count++;
+        s_mcu_can_error_count++;
         return CAN_ERROR_TX_BUSY;
     }
 
-    s_ecu_can_tx_count++;
+    s_mcu_can_tx_count++;
     return CAN_ERROR_NO;
 }
 
@@ -166,13 +166,13 @@ static CAN_ReturnError_t CAN_SendRaw(uint32_t std_id,
 {
     CAN_ReturnError_t result = CAN_ERROR_TX_BUSY;
 
-    if (rt_mutex_trytake(&s_ecu_can_tx_lock) != RT_EOK)
+    if (rt_mutex_trytake(&s_mcu_can_tx_lock) != RT_EOK)
     {
         return CAN_ERROR_TX_BUSY;
     }
 
     result = CAN_SendRawLocked(std_id, data, dlc);
-    (void)rt_mutex_release(&s_ecu_can_tx_lock);
+    (void)rt_mutex_release(&s_mcu_can_tx_lock);
     return result;
 }
 
@@ -185,16 +185,16 @@ static bool CAN_QueueRxFrame(const can_frame_t *frame)
         return false;
     }
 
-    next_head = (uint8_t)((s_ecu_can_rx_head + 1U) % CAN_RX_QUEUE_CAPACITY);
-    if (next_head == s_ecu_can_rx_tail)
+    next_head = (uint8_t)((s_mcu_can_rx_head + 1U) % CAN_RX_QUEUE_CAPACITY);
+    if (next_head == s_mcu_can_rx_tail)
     {
-        s_ecu_can_error_status |= CAN_ERRRX_OVERFLOW;
-        s_ecu_can_error_count++;
+        s_mcu_can_error_status |= CAN_ERRRX_OVERFLOW;
+        s_mcu_can_error_count++;
         return false;
     }
 
-    s_ecu_can_rx_queue[s_ecu_can_rx_head] = *frame;
-    s_ecu_can_rx_head = next_head;
+    s_mcu_can_rx_queue[s_mcu_can_rx_head] = *frame;
+    s_mcu_can_rx_head = next_head;
 
     return true;
 }
@@ -210,7 +210,7 @@ bool CAN_TakeRxFrame(can_frame_t *frame)
 
     primask = __get_PRIMASK();
     __disable_irq();
-    if (s_ecu_can_rx_head == s_ecu_can_rx_tail)
+    if (s_mcu_can_rx_head == s_mcu_can_rx_tail)
     {
         if (primask == 0U)
         {
@@ -219,9 +219,9 @@ bool CAN_TakeRxFrame(can_frame_t *frame)
         return false;
     }
 
-    *frame = s_ecu_can_rx_queue[s_ecu_can_rx_tail];
-    s_ecu_can_rx_tail =
-        (uint8_t)((s_ecu_can_rx_tail + 1U) % CAN_RX_QUEUE_CAPACITY);
+    *frame = s_mcu_can_rx_queue[s_mcu_can_rx_tail];
+    s_mcu_can_rx_tail =
+        (uint8_t)((s_mcu_can_rx_tail + 1U) % CAN_RX_QUEUE_CAPACITY);
     if (primask == 0U)
     {
         __enable_irq();
@@ -242,22 +242,22 @@ CAN_ReturnError_t CAN_SendFrame(const can_frame_t *frame)
 
 uint32_t CAN_GetRxCount(void)
 {
-    return s_ecu_can_rx_count;
+    return s_mcu_can_rx_count;
 }
 
 uint32_t CAN_GetTxCount(void)
 {
-    return s_ecu_can_tx_count;
+    return s_mcu_can_tx_count;
 }
 
 uint32_t CAN_GetErrorCount(void)
 {
-    return s_ecu_can_error_count;
+    return s_mcu_can_error_count;
 }
 
 uint16_t CAN_GetErrorStatus(void)
 {
-    return s_ecu_can_error_status;
+    return s_mcu_can_error_status;
 }
 
 void CAN_ClearErrorStatus(uint16_t mask)
@@ -265,8 +265,8 @@ void CAN_ClearErrorStatus(uint16_t mask)
     uint32_t primask = __get_PRIMASK();
 
     __disable_irq();
-    s_ecu_can_error_status =
-        (uint16_t)(s_ecu_can_error_status & (uint16_t)~mask);
+    s_mcu_can_error_status =
+        (uint16_t)(s_mcu_can_error_status & (uint16_t)~mask);
     if (primask == 0U)
     {
         __enable_irq();
@@ -290,20 +290,20 @@ void CAN_module_process(void)
     primask = __get_PRIMASK();
     __disable_irq();
 
-    if (err != s_ecu_can_err_old)
+    if (err != s_mcu_can_err_old)
     {
-        s_ecu_can_err_old = err;
+        s_mcu_can_err_old = err;
 
         if ((err & FDCAN_PSR_BO) != 0U)
         {
             /* The FDCAN controller recovers from bus-off automatically after
              * the required recessive bits; no manual stop/restart is needed. */
-            status = (uint16_t)(s_ecu_can_error_status | CAN_ERRTX_BUS_OFF);
-            s_ecu_can_error_count++;
+            status = (uint16_t)(s_mcu_can_error_status | CAN_ERRTX_BUS_OFF);
+            s_mcu_can_error_count++;
         }
         else
         {
-            status = (uint16_t)(s_ecu_can_error_status &
+            status = (uint16_t)(s_mcu_can_error_status &
                                 (uint16_t)(0xFFFFU ^ (CAN_ERRTX_BUS_OFF |
                                     CAN_ERRRX_WARNING | CAN_ERRRX_PASSIVE |
                                     CAN_ERRTX_WARNING | CAN_ERRTX_PASSIVE)));
@@ -319,7 +319,7 @@ void CAN_module_process(void)
             }
         }
 
-        s_ecu_can_error_status = status;
+        s_mcu_can_error_status = status;
     }
 
     if (primask == 0U)
@@ -343,8 +343,8 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan,
     if ((RxFifo0ITs & (FDCAN_IT_RX_FIFO0_FULL |
                        FDCAN_IT_RX_FIFO0_MESSAGE_LOST)) != 0U)
     {
-        s_ecu_can_error_status |= CAN_ERRRX_OVERFLOW;
-        s_ecu_can_error_count++;
+        s_mcu_can_error_status |= CAN_ERRRX_OVERFLOW;
+        s_mcu_can_error_count++;
         return;
     }
 
@@ -357,12 +357,12 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan,
         hfdcan, FDCAN_RX_FIFO0, &rx_header, rx_data);
     if (status != HAL_OK)
     {
-        s_ecu_can_error_status |= CAN_ERRRX_OVERFLOW;
-        s_ecu_can_error_count++;
+        s_mcu_can_error_status |= CAN_ERRRX_OVERFLOW;
+        s_mcu_can_error_count++;
         return;
     }
 
-    s_ecu_can_rx_count++;
+    s_mcu_can_rx_count++;
 
     if ((rx_header.IdType == FDCAN_STANDARD_ID) &&
         (rx_header.RxFrameType == FDCAN_DATA_FRAME))

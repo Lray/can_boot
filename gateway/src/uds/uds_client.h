@@ -27,14 +27,16 @@ typedef struct
     const TransportOps *transport;
     void *transport_ctx;
     uint8_t last_nrc;
-    /* P2ServerMax: maximum wait for a normal ECU response, in milliseconds. */
+    /* P2ServerMax: maximum wait for a normal MCU response, in milliseconds. */
     uint32_t p2_server_max_ms;
     /* P2*ServerMax: maximum wait after NRC 0x78 ResponsePending, in milliseconds. */
     uint32_t p2_star_server_max_ms;
+    /* Absolute monotonic deadline for the current complete update operation. */
+    uint64_t operation_deadline_ms;
 }UdsClient;
 
 
-/** Reopen the transport and reinitialize the client after an ECU reset. */
+/** Reopen the transport and reinitialize the client after an MCU reset. */
 typedef int (*UdsReconnectFn_t)(void *ctx, UdsClient *client);
 
 typedef struct
@@ -53,6 +55,8 @@ typedef struct
  */
 void uds_client_init(UdsClient *client, const TransportOps *transport,
                              void *transport_ctx);
+/** Bound every subsequent transaction by one absolute monotonic deadline. */
+void uds_client_set_operation_deadline(UdsClient *client, uint64_t deadline_ms);
 /**
  * Check whether a client has both required transport operations.
  *
@@ -89,7 +93,7 @@ int uds_prepare_download_ready(UdsClient *client, bool *ready_out);
 int uds_read_did(UdsClient *client, uint16_t did, uint8_t *data_out, size_t data_cap,
                          size_t *data_len_out);
 /**
- * Open a prepared ECU download through the product 0x34 extension.
+ * Open a prepared MCU download through the product 0x34 extension.
  *
  * @param client Ready UDS client.
  * @param payload_id SHA-256 of the complete image byte stream.
@@ -106,7 +110,7 @@ int uds_request_download(UdsClient *client,
  * Transfer one download block using the supplied sequence counter.
  *
  * @param client Ready UDS client.
- * @param block_sequence Expected ECU block sequence counter.
+ * @param block_sequence Expected MCU block sequence counter.
  * @param data Payload bytes; may be NULL only when data_len is zero.
  * @param data_len Payload length, limited to TRANSFER_BLOCK_PAYLOAD.
  * @return 0 on success or a UDS_ERR_* value on failure.
@@ -115,13 +119,13 @@ int uds_transfer_data(UdsClient *client, uint8_t block_sequence, const uint8_t *
                               uint16_t data_len);
 int uds_request_transfer_exit(UdsClient *client);
 /**
- * Request an immediate hard ECU reset and revert session state locally.
+ * Request an immediate hard MCU reset and revert session state locally.
  *
  * @param client Ready UDS client.
  * @return 0 on success, UDS_ERR_TIMEOUT when the reset was acknowledged-but
  *         response lost, or another UDS_ERR_* value on failure.
  */
-int uds_ecu_reset_hard(UdsClient *client);
+int uds_mcu_reset_hard(UdsClient *client);
 /**
  * Check whether a transaction result is a UDS transport-layer error.
  *

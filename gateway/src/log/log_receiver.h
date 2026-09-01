@@ -8,7 +8,7 @@
 #include "log_frame.h"
 
 /* The MCU wire contract permits 64 seven-byte fragments. */
-#define LOG_RECEIVER_MAX_LINE_SIZE ECU_ULOG_MAX_LOG_SIZE
+#define LOG_RECEIVER_MAX_LINE_SIZE MCU_ULOG_MAX_LOG_SIZE
 
 /* A non-owning view of one completely reassembled ULog record. */
 typedef struct {
@@ -47,7 +47,7 @@ bool log_receiver_abort(LogReceiver_t *receiver);
  */
 LogReceiverResult_t log_receiver_accept(
     LogReceiver_t *receiver,
-    const EcuUlogFrame_t *frame,
+    const McuUlogFrame_t *frame,
     LogRecordView_t *record_out);
 
 #endif /* LOG_RECEIVER_H */

@@ -1,0 +1,3 @@
+source=external-boot-valid-input
+boot_valid=yes
+image=E:\T527\can_boot\can\release\v1.2.0\mcuboot-slot0\image.bin

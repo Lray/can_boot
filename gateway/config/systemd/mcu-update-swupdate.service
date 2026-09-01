@@ -1,0 +1,18 @@
+[Unit]
+Description=MCU update SWUpdate Suricatta client
+Wants=mcu-update-wifi.service mcu-update-wpa-supplicant.service mcu-update-network-online.service mcu-updater.service
+After=mcu-update-network-online.service mcu-updater.service
+ConditionPathExists=/etc/mcu-update/hawkbit.conf
+ConditionPathExists=/sbin/swupdate
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/mcu-update/hawkbit.conf
+ExecStartPre=/usr/libexec/mcu-update/wait-for-remote-handler
+ExecStart=/usr/libexec/mcu-update/swupdate-suricatta
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

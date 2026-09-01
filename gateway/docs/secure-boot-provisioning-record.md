@@ -12,13 +12,13 @@
 | **安全启动密钥组** | 固件签名/验证(secure boot 链) | RSA 2048 | `E:\T527\secure-keys-20260816\`(RootKey_Level_0 / TrustedFirmwareContentCertPK / NonTrustedFirmwareContentCertPK) |
 | **ROTPK** | 根证书公钥哈希,烧入 efuse,验证安全固件 | 32B(专有哈希算法,非标准 SHA256) | `rotpk.bin` = `ccb90aedde7c4aad53bb8c322e46c23d6c28d2a91575ab335b178082cc5ae119` |
 | **SSK** | keybox 数据加密密钥(OP-TEE 从 efuse 读取) | 32B | `ssk.bin` = `f860a5d689e21fb54ff0811cbc92a192612599231d1cd0e5accfb5426ccfb38e` |
-| **ECU 签名密钥** | OTA token(COSE Sign1 ES256)签名 | P-256 | 私钥:keybox `ecc_key`(安全世界);公钥:`9a574e42...51a80`(daemon 编译期常量) |
+| **MCU 签名密钥** | OTA token(COSE Sign1 ES256)签名 | P-256 | 私钥:keybox `ecc_key`(安全世界);公钥:`9a574e42...51a80`(daemon 编译期常量) |
 
 **对应关系说明**:
-- 安全启动密钥组(RSA)只用于固件签名链验证,与 ECU 的 P-256 签名密钥**完全独立,无任何关联**
-- ECU P-256 公钥对应的是 keybox 中烧录的 `ecc_key.bin`(d‖x‖y,96B),与 daemon
+- 安全启动密钥组(RSA)只用于固件签名链验证,与 MCU 的 P-256 签名密钥**完全独立,无任何关联**
+- MCU P-256 公钥对应的是 keybox 中烧录的 `ecc_key.bin`(d‖x‖y,96B),与 daemon
   `token_signer_daemon_main.c` 中 `expected_public_x963` 常量一致
-- 若需更换 ECU 签名密钥:重新生成 keypair → 更新 daemon 常量重编 → 重新烧录 `ecc_key`
+- 若需更换 MCU 签名密钥:重新生成 keypair → 更新 daemon 常量重编 → 重新烧录 `ecc_key`
 
 ## 2. 板端镜像配置改动(SDK,构建树 /home/lirui/work/t527/MYD-LT527,已同步 /mnt/e)
 
@@ -77,18 +77,18 @@ install -m 0644 libteec.so.1.0.0 /usr/lib/libteec.so.1.0.0
 ln -sf libteec.so.1.0.0 /usr/lib/libteec.so.1
 
 # TA(724b12aa-6e74-4779-bf3a-1580a076fed3.ta)→ /lib/optee_armtz/
-# daemon → /run/media/mmcblk0p6/ecu-ota/bin/token-signer-daemon(UDISK 持久)
+# daemon → /run/media/mmcblk0p6/mcu-update/bin/token-signer-daemon(UDISK 持久)
 
 # 账号(规范)
-addgroup -g 201 ecu-token-client
-addgroup -g 200 ecu-token-signer
-adduser -D -H -u 200 -G ecu-token-signer -s /bin/false ecu-token-signer
+addgroup -g 201 mcu-token-client
+addgroup -g 200 mcu-token-signer
+adduser -D -H -u 200 -G mcu-token-signer -s /bin/false mcu-token-signer
 
 # 启动
 tee-supplicant &
 token-signer-daemon --uid 200 --gid 200 --socket-gid 201 \
   --client-uid 0 --client-gid 0 --idle-timeout 3600 \
-  --endpoint /run/ecu-token-signer/v1.sock &
+  --endpoint /run/mcu-token-signer/v1.sock &
 ```
 
 ## 6. 端到端验证
@@ -110,7 +110,7 @@ verify: 0 (SUCCESS)      # 公钥验签通过
 | `ecc_key.bin` | 96B | keybox 烧录(d‖x‖y) | `050E66CC...F0DF09` |
 
 配套(不在 key 目录):签名密钥组 `E:\T527\secure-keys-20260816\`(离线保管,丢失=设备失控);
-ECU 私钥 PEM `ecc-key-material\can-ota-p256-new.pem`(离线保管,勿入库勿上设备)。
+MCU 私钥 PEM `ecc-key-material\can-ota-p256-new.pem`(离线保管,勿入库勿上设备)。
 
 ## 8. 关键经验(后续板子)
 
@@ -118,4 +118,4 @@ ECU 私钥 PEM `ecc-key-material\can-ota-p256-new.pem`(离线保管,勿入库勿
 2. **烧录顺序**:安全镜像 → ROTPK → ecc_key(SSK 出厂预置则跳过)
 3. **数据格式**:rotpk 用专有类型;ecc_key/ssk 用"二进制文件"类型选文件
 4. **烧录时序**:完全断电 → USB 连接 → 上电(不能刷机模式开机)
-5. **密钥配套**:安全启动密钥组必须与 ROTPK 配套,ECU P-256 密钥必须与 daemon 常量配套,两者独立
+5. **密钥配套**:安全启动密钥组必须与 ROTPK 配套,MCU P-256 密钥必须与 daemon 常量配套,两者独立

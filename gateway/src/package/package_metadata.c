@@ -10,7 +10,7 @@
 
 /* Field offsets follow MCUboot's struct image_header (little endian):
  * magic@0, hdr_size@8(u16), version@20. Reads declared metadata for
- * transport and verdict decisions; the ECU bootloader remains the
+ * transport and verdict decisions; the MCU bootloader remains the
  * security authority over header layout, TLVs and signature. */
 #define MCUBOOT_IMAGE_MAGIC 0x96F3B83Du
 #define MCUBOOT_IMAGE_HEADER_MIN 32u

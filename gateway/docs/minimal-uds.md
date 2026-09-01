@@ -28,8 +28,8 @@ Host validation:
   - tester present request/positive response
   - DID read payload extraction
   - negative response reporting
-  - `0x10` 完整解析并保存 ECU 公布的 P2/P2*（P2* wire unit 为 10 ms）
-  - 仅收到同 SID、长度正确的 `0x7F <SID> 0x78` 后，才从协商 P2 切换到协商 P2*；最多接受 ECU profile 规定的 8 个 pending
+  - `0x10` 完整解析并保存 MCU 公布的 P2/P2*（P2* wire unit 为 10 ms）
+  - 仅收到同 SID、长度正确的 `0x7F <SID> 0x78` 后，才从协商 P2 切换到协商 P2*；最多接受 MCU profile 规定的 8 个 pending
 
 Board validation command:
 

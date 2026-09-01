@@ -2,19 +2,19 @@
 set -euo pipefail
 
 readonly MANAGEMENT_URL="${HAWKBIT_MANAGEMENT_URL:-http://127.0.0.1:18080}"
-readonly CREDENTIAL_FILE="${HAWKBIT_CREDENTIAL_FILE:-${HOME}/.config/ecu-ota/hawkbit-admin.env}"
-readonly STATE_DIRECTORY="${HAWKBIT_STATE_DIRECTORY:-${HOME}/.local/state/ecu-ota-hawkbit}"
+readonly CREDENTIAL_FILE="${HAWKBIT_CREDENTIAL_FILE:-${HOME}/.config/mcu-update/hawkbit-admin.env}"
+readonly STATE_DIRECTORY="${HAWKBIT_STATE_DIRECTORY:-${HOME}/.local/state/mcu-update-hawkbit}"
 usage()
 {
     cat <<'EOF'
 usage:
   hawkbit_action_wsl.sh provision --hawkbit-config /secure/hawkbit.conf \
-      --target-address IPv4 [--state ~/.local/state/ecu-ota-hawkbit/action.env]
+      --target-address IPv4 [--state ~/.local/state/mcu-update-hawkbit/action.env]
   hawkbit_action_wsl.sh register --hawkbit-host IPv4 --target-address IPv4 \
-      [--state ~/.local/state/ecu-ota-hawkbit/action.env]
+      [--state ~/.local/state/mcu-update-hawkbit/action.env]
   hawkbit_action_wsl.sh assign --artifact /mnt/e/.../gateway-hawkbit-e2e-v101.swu \
-      --state ~/.local/state/ecu-ota-hawkbit/action.env
-  hawkbit_action_wsl.sh status --state ~/.local/state/ecu-ota-hawkbit/action.env
+      --state ~/.local/state/mcu-update-hawkbit/action.env
+  hawkbit_action_wsl.sh status --state ~/.local/state/mcu-update-hawkbit/action.env
 
 The credential file must be owned by the current WSL user, mode 0600 or 0400,
 and define HAWKBIT_ADMIN_USER and HAWKBIT_ADMIN_PASSWORD.

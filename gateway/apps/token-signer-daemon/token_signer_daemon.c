@@ -14,18 +14,14 @@
 
 #include "qcbor/qcbor_encode.h"
 #include "qcbor/qcbor_spiffy_decode.h"
-#include "t_cose/t_cose_sign1_sign.h"
-#include "t_cose_standard_constants.h"
-#include "t_cose_crypto.h"
 #include "profile.h"
+#include "token_builder.h"
 #include "token_signer_protocol.h"
-#include "shared/security_token_profile.h"
 
 #define TOKEN_SIGNER_DAEMON_SOCKET_MODE 0660u
 #define TOKEN_SIGNER_DAEMON_BACKLOG 8u
 #define TOKEN_SIGNER_DAEMON_POLL_TIMEOUT_MS 5000u
 #define TOKEN_SIGNER_TOKEN_MAX_SIZE SECURITY_TOKEN_MAX_SIZE
-#define TOKEN_SIGNER_PAYLOAD_MAX_SIZE 256u
 #define TOKEN_SIGNER_SEED_SIZE SECURITY_ACCESS_SEED_SIZE
 
 typedef struct
@@ -34,18 +30,6 @@ typedef struct
     uint8_t seed[64];
     size_t seed_len;
 } SignerRequest_t;
-
-static uint64_t freshness_nonce(const uint8_t *seed, size_t seed_len)
-{
-    uint64_t value = 0u;
-    size_t index;
-
-    for (index = 0u; index < seed_len; ++index)
-    {
-        value = (value << 8) | seed[index];
-    }
-    return (value << 32) | 1u;
-}
 
 static int parse_request(const uint8_t *packet, size_t packet_len,
                          SignerRequest_t *request)
@@ -85,52 +69,25 @@ static int build_token(TokenSignerTee_t *tee, const SignerRequest_t *request,
                        uint8_t *token_out, size_t token_cap,
                        size_t *token_len_out)
 {
-    QCBOREncodeContext payload_context;
-    uint8_t payload_buffer[TOKEN_SIGNER_PAYLOAD_MAX_SIZE] = {0};
-    UsefulBufC payload = NULLUsefulBufC;
-    struct t_cose_sign1_sign_ctx sign_context;
     struct t_cose_key signing_key = T_COSE_NULL_KEY;
-    struct q_useful_buf_c token = NULL_Q_USEFUL_BUF_C;
-    enum t_cose_err_t cose_rc;
+    TokenBuilderResult_t result;
 
     if (tee == NULL || request == NULL || token_out == NULL ||
         token_len_out == NULL || request->seed_len != TOKEN_SIGNER_SEED_SIZE)
     {
         return TOKEN_SIGNER_RESPONSE_STATUS_INTERNAL;
     }
-    QCBOREncode_Init(&payload_context,
-                     (UsefulBuf){payload_buffer, sizeof(payload_buffer)});
-    QCBOREncode_OpenMap(&payload_context);
-    QCBOREncode_AddBytesToMapN(&payload_context, SECURITY_TOKEN_LABEL_SEED_CHALLENGE,
-                               (UsefulBufC){request->seed, request->seed_len});
-    QCBOREncode_AddUInt64ToMapN(
-        &payload_context, SECURITY_TOKEN_LABEL_FRESHNESS_NONCE,
-        freshness_nonce(request->seed, request->seed_len));
-    QCBOREncode_CloseMap(&payload_context);
-    if (QCBOREncode_Finish(&payload_context, &payload) != QCBOR_SUCCESS)
-    {
-        return TOKEN_SIGNER_RESPONSE_STATUS_TOO_LARGE;
-    }
     signing_key.k.key_ptr = tee;
-    t_cose_sign1_sign_init(&sign_context, T_COSE_OPT_OMIT_CBOR_TAG,
-                           T_COSE_ALGORITHM_ES256);
-    t_cose_sign1_set_signing_key(&sign_context, signing_key,
-                                 NULL_Q_USEFUL_BUF_C);
-    cose_rc = t_cose_sign1_sign(
-        &sign_context, (struct q_useful_buf_c){payload.ptr, payload.len},
-        (struct q_useful_buf){token_out, token_cap}, &token);
-    if (cose_rc != T_COSE_SUCCESS)
+    result = token_builder_sign_seed(signing_key, request->seed,
+                                     request->seed_len, token_out, token_cap,
+                                     token_len_out);
+    if (result == TOKEN_BUILDER_OK)
     {
-        return cose_rc == T_COSE_ERR_TOO_SMALL
-                   ? TOKEN_SIGNER_RESPONSE_STATUS_TOO_LARGE
-                   : TOKEN_SIGNER_RESPONSE_STATUS_SIGNING;
+        return TOKEN_SIGNER_RESPONSE_STATUS_OK;
     }
-    if (token.len == 0u || token.len > TOKEN_SIGNER_TOKEN_MAX_SIZE)
-    {
-        return TOKEN_SIGNER_RESPONSE_STATUS_TOO_LARGE;
-    }
-    *token_len_out = token.len;
-    return TOKEN_SIGNER_RESPONSE_STATUS_OK;
+    return result == TOKEN_BUILDER_TOO_LARGE
+               ? TOKEN_SIGNER_RESPONSE_STATUS_TOO_LARGE
+               : TOKEN_SIGNER_RESPONSE_STATUS_SIGNING;
 }
 
 static int encode_response(unsigned int status, const uint8_t request_id[16],

@@ -23,6 +23,14 @@ void uds_client_init(UdsClient *client, const TransportOps *transport,
     client->p2_star_server_max_ms = P2_STAR_SERVER_DEFAULT_MS;
 }
 
+void uds_client_set_operation_deadline(UdsClient *client, uint64_t deadline_ms)
+{
+    if (client != NULL)
+    {
+        client->operation_deadline_ms = deadline_ms;
+    }
+}
+
 int uds_client_is_ready(const UdsClient *client)
 {
     return client != NULL && client->transport != NULL && client->transport->send != NULL &&
@@ -62,18 +70,18 @@ static int uds_client_accept_session_control_response(UdsClient *client, uint8_t
 }
 
 /*
- * SID: 0x10 DiagnosticSessionControl - switch the ECU diagnostic session.
+ * SID: 0x10 DiagnosticSessionControl - switch the MCU diagnostic session.
  *
  * Request wire format: 0x10 <session_type>.
- * The OTA worker sends 0x10 03 for Extended Session, followed by 0x10 02 for
+ * The update engine sends 0x10 03 for Extended Session, followed by 0x10 02 for
  * Programming Session. 0x10 01 would return to Default Session.
  *
  * session_type values:
  *   SESSION_DEFAULT    (0x01): normal diagnostic operation.
- *   SESSION_PROGRAMMING (0x02): ECU reprogramming and download operations.
+ *   SESSION_PROGRAMMING (0x02): MCU reprogramming and download operations.
  *   SESSION_EXTENDED  (0x03): extended diagnostics and OTA preparation.
  *
- * On success, the client adopts the ECU's P2ServerMax and P2*ServerMax
+ * On success, the client adopts the MCU's P2ServerMax and P2*ServerMax
  * timing parameters from the positive response.
  */
 int uds_enter_session(UdsClient *client, uint8_t session_type)
@@ -168,7 +176,7 @@ int uds_security_request_seed(UdsClient *client, uint8_t *seed_out, size_t seed_
 }
 
 /*
- * SID: 0x27 SecurityAccess - send the programming key/token to unlock the ECU.
+ * SID: 0x27 SecurityAccess - send the programming key/token to unlock the MCU.
  * Request wire format: 0x27 02 <token> (programming key sub-function followed
  * by the signer-produced token bytes).
  */
@@ -286,7 +294,7 @@ int uds_prepare_download_ready(UdsClient *client, bool *ready_out)
                : UDS_ERR_MALFORMED_RESPONSE;
 }
 
-/* SID: 0x22 ReadDataService (ReadDataByIdentifier) - read and copy an ECU DID payload. */
+/* SID: 0x22 ReadDataService (ReadDataByIdentifier) - read and copy an MCU DID payload. */
 int uds_read_did(UdsClient *client, uint16_t did, uint8_t *data_out, size_t data_cap,
                          size_t *data_len_out)
 {
@@ -433,17 +441,17 @@ int uds_request_transfer_exit(UdsClient *client)
 }
 
 /*
- * SID: 0x11 ECUReset - request a hard ECU reset.
+ * SID: 0x11 MCUReset - request a hard MCU reset.
  * Request wire format: 0x11 01 (hard-reset sub-function).
  */
-int uds_ecu_reset_hard(UdsClient *client)
+int uds_mcu_reset_hard(UdsClient *client)
 {
     uint8_t request[2] = {0};
     uint8_t response[UDS_MAX_RESPONSE] = {0};
     size_t response_len = 0;
     int rc = 0;
 
-    request[0] = SID_ECU_RESET;
+    request[0] = SID_MCU_RESET;
     request[1] = SUB_HARD_RESET;
 
     rc = uds_transaction_request(client, request, sizeof(request), response,

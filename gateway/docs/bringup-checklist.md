@@ -9,9 +9,9 @@ Preconditions:
 - Root filesystem includes `iproute2`.
 - Root filesystem includes `can-utils` with `candump`.
 - CAN bus is terminated correctly.
-- ECU side is configured for classic CAN at `500000` bps.
-- ECU firmware periodically transmits heartbeat ID `0x700`.
-- ECU firmware echoes or otherwise responds to gateway request ID `0x7E0` on response ID `0x7E8`.
+- MCU side is configured for classic CAN at `500000` bps.
+- MCU firmware periodically transmits heartbeat ID `0x700`.
+- MCU firmware echoes or otherwise responds to gateway request ID `0x7E0` on response ID `0x7E8`.
 
 Gateway commands:
 
@@ -24,13 +24,13 @@ cd /opt/can-ota-gateway
 Required evidence:
 
 - `ip -details link show awlink0` after setup.
-- `candump -tz awlink0` line containing ECU heartbeat standard CAN ID `700`, with payload starting with `A5`.
+- `candump -tz awlink0` line containing MCU heartbeat standard CAN ID `700`, with payload starting with `A5`.
 - `raw_can_smoke` or `cansend` evidence that gateway sent standard CAN ID `7E0` with payload `11 22 33 44 55 66 77 88`.
-- `candump -tz awlink0` line containing ECU response standard CAN ID `7E8` with payload `11 22 33 44 55 66 77 88`.
+- `candump -tz awlink0` line containing MCU response standard CAN ID `7E8` with payload `11 22 33 44 55 66 77 88`.
 - `ip -details -statistics link show awlink0` after the smoke test, showing `ERROR-ACTIVE`, `berr-counter tx 0 rx 0`, `bus-errors 0`, `error-warn 0`, `error-pass 0`, `bus-off 0`, and RX/TX errors `0`.
 - Final script line: `RAW CAN PASS`.
 
-Seeing only the local `7E0` request in `candump` is not sufficient. RAW CAN success requires evidence from the ECU side: heartbeat `700` and response `7E8`.
+Seeing only the local `7E0` request in `candump` is not sufficient. RAW CAN success requires evidence from the MCU side: heartbeat `700` and response `7E8`.
 
 ## Next validations
 
@@ -87,7 +87,7 @@ Do not invoke individual download, resume, pre-check, or reset
 services from a board smoke tool. The only integration path is:
 
 ```text
-SWUpdate -> ecu-ota-bridge -> gateway-ota-worker-v1 -> ota_executor
+SWUpdate -> mcu-updater -> mcu_update_run_job -> ota_executor
 ```
 
 Required evidence:
@@ -113,7 +113,7 @@ Before moving to another validation, confirm the new code keeps these boundaries
 ## HIL failure and rollback closure
 
 Do not declare overall OTA validation PASS until the following cases have been
-run against a real ECU. No host fake is a substitute for these checks.
+run against a real MCU. No host fake is a substitute for these checks.
 
 Required evidence:
 
