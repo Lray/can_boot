@@ -216,8 +216,8 @@ The only OTA owner is:
 
 Its private transfer and observation collaborators are:
 
-- `src/ota/resume_transfer.h`
-- `src/ota/resume_transfer.c`
+- `src/ota/transfer.h`
+- `src/ota/transfer.c`
 - `src/ota/ota_runtime.h`
 - `src/ota/ota_snapshot.h`
 - `src/ota/ota_snapshot.c`
@@ -236,12 +236,12 @@ Responsibility:
 - `ota_snapshot` owns stable MCU observation: the injectable monotonic
   clock and sleep, single DID snapshot reads, and the two-reads-equal
   polling policy used before download and after reset.
-- `resume_transfer` starts and polls the MCU download-preparation routine, validates the
-  subsequent `RequestDownload` response, calculates the remaining transfer from its durable offset, and drives the
-  already-authorized `0x36/0x37` transfer, enforcing byte count, block
-  sequence, and the terminal state of one transfer session.
+- `transfer` starts and polls the MCU download-preparation routine, validates the
+  subsequent `RequestDownload` response, and drives the already-authorized
+  `0x36/0x37` transfer, enforcing byte count, block sequence, and the terminal
+  state of one transfer session.
 
-`resume_transfer` owns resume arithmetic and does not duplicate the executor
+`transfer` owns the full image transfer and does not duplicate the executor
 lifecycle.
 
 Rules:

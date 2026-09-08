@@ -32,17 +32,12 @@ typedef enum
 void Download_Init(void);
 
 /**
- * Prepare a resumable image transfer and start erasing its target suffix.
+ * Select the inactive slot and start erasing it.
  *
- * The request identity is the SHA-256 of the complete MCUboot image byte
- * stream, supplied by the unlocked UDS programming session.
- *
- * @param payload_id Exact image byte-stream SHA-256; must be non-NULL.
- * @param image_size Exact payload length; must fit in the inactive slot.
+ * The image identity is bound later by Download_Begin through the 0x34
+ * request; erasing itself needs no request parameters.
  */
-download_result_t Download_Prepare(
-    const uint8_t payload_id[PAYLOAD_ID_SIZE],
-    uint32_t image_size);
+download_result_t Download_Prepare(void);
 
 /** Advance the active Flash erase job by one sector. */
 void Download_Poll(void);
@@ -51,20 +46,28 @@ void Download_Poll(void);
 download_preparation_status_t Download_GetPreparationStatus(void);
 
 /**
- * Validate a prepared image identity and open the data-transfer phase.
+ * Validate the requested image against the prepared slot and open the
+ * data-transfer phase.
+ *
+ * @param payload_id Exact image byte-stream SHA-256; must be non-NULL.
+ * @param image_size Exact payload length; must fit in the inactive slot.
  */
 download_result_t Download_Begin(
     const uint8_t payload_id[PAYLOAD_ID_SIZE],
     uint32_t image_size,
-    uint8_t *target_slot_out,
-    uint32_t *resume_offset_out);
+    uint8_t *target_slot_out);
 
 /** Program one validated TransferData block into the inactive slot. */
 download_result_t Download_Transfer(uint8_t block_sequence_counter,
                                     const uint8_t *payload,
                                     uint16_t length);
 
-/** Finish a complete transfer and persist its terminal transfer checkpoint. */
+/**
+ * Finish a complete transfer.
+ *
+ * @return OK when the whole image was received, or REJECTED when no transfer
+ *         is active (ISO 14229-1 0x37 -> NRC 0x70).
+ */
 download_result_t Download_Exit(void);
 
 #endif /* DOWNLOAD_H */

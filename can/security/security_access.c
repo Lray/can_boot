@@ -93,7 +93,7 @@ security_access_result_t SecurityAccess_RequestSeed(uint32_t now_ms,
   {
     return SECURITY_ACCESS_RESULT_DELAY_ACTIVE;
   }
-
+  //如果已解锁，返回全零seed
   if (s_security.unlocked)
   {
     memset(seed, 0, SECURITY_ACCESS_SEED_SIZE);

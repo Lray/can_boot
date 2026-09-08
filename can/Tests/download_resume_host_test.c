@@ -8,17 +8,8 @@
 #include "flash_map.h"
 #include "sysflash.h"
 
-static uint8_t s_journal_flash[FLASH_AREA_DOWNLOAD_JOURNAL_SIZE];
 static uint8_t s_slot_flash[2][FLASH_AREA_IMAGE_0_SIZE];
 static uint8_t s_active_slot;
-static bool s_journal_write_fail;
-static struct flash_area s_journal_area = {
-    FLASH_AREA_DOWNLOAD_JOURNAL,
-    FLASH_DEVICE_INTERNAL_FLASH,
-    0U,
-    FLASH_AREA_DOWNLOAD_JOURNAL_ADDRESS,
-    FLASH_AREA_DOWNLOAD_JOURNAL_SIZE,
-};
 static struct flash_area s_slot_area[2] = {
     {
         FLASH_AREA_IMAGE_0,
@@ -38,10 +29,6 @@ static struct flash_area s_slot_area[2] = {
 
 static uint8_t *area_bytes(const struct flash_area *area)
 {
-    if (area == &s_journal_area)
-    {
-        return s_journal_flash;
-    }
     if (area == &s_slot_area[0])
     {
         return s_slot_flash[0];
@@ -55,10 +42,8 @@ static uint8_t *area_bytes(const struct flash_area *area)
 
 static void reset_flash(void)
 {
-    memset(s_journal_flash, 0xFF, sizeof(s_journal_flash));
     memset(s_slot_flash, 0xFF, sizeof(s_slot_flash));
     s_active_slot = SLOT_A;
-    s_journal_write_fail = false;
     Download_Init();
 }
 
@@ -70,23 +55,19 @@ static void fill_id(uint8_t payload_id[PAYLOAD_ID_SIZE], uint8_t seed)
     }
 }
 
-static uint32_t begin_download(
+static void begin_download(
     const uint8_t payload_id[PAYLOAD_ID_SIZE],
     uint32_t image_size,
     uint8_t *target_slot_out)
 {
-    uint32_t resume_offset = 0U;
-
-    assert(Download_Prepare(payload_id, image_size) == DOWNLOAD_RESULT_OK);
+    assert(Download_Prepare() == DOWNLOAD_RESULT_OK);
     while (Download_GetPreparationStatus() == DOWNLOAD_PREPARATION_PENDING)
     {
         Download_Poll();
     }
     assert(Download_Begin(payload_id,
                           image_size,
-                          target_slot_out,
-                          &resume_offset) == DOWNLOAD_RESULT_OK);
-    return resume_offset;
+                          target_slot_out) == DOWNLOAD_RESULT_OK);
 }
 
 static void erase_and_ready(void)
@@ -121,10 +102,6 @@ int flash_area_open(uint8_t id, const struct flash_area **area)
     }
     switch (id)
     {
-        case FLASH_AREA_DOWNLOAD_JOURNAL:
-            *area = &s_journal_area;
-            return 0;
-
         case FLASH_AREA_IMAGE_0:
             *area = &s_slot_area[0];
             return 0;
@@ -169,8 +146,7 @@ int flash_area_write(const struct flash_area *area,
     const uint8_t *input = (const uint8_t *)source;
 
     if ((bytes == NULL) || (input == NULL) ||
-        (offset > area->fa_size) || (length > area->fa_size - offset) ||
-        ((area == &s_journal_area) && s_journal_write_fail))
+        (offset > area->fa_size) || (length > area->fa_size - offset))
     {
         return -1;
     }
@@ -249,232 +225,123 @@ bool BootObservation_GetRunningImageVersion(
     return false;
 }
 
-static void test_same_payload_resumes_durable_offset(void)
+static void test_full_transfer_flow(void)
 {
     uint8_t payload_id[PAYLOAD_ID_SIZE] = {0};
     uint8_t target_slot = SLOT_INVALID;
 
     reset_flash();
     fill_id(payload_id, 1U);
-    assert(Download_Prepare(payload_id,
-                            2U * FLASH_PAGE_SIZE_BYTES) == DOWNLOAD_RESULT_OK);
+    assert(Download_Prepare() == DOWNLOAD_RESULT_OK);
     assert(Download_Begin(payload_id,
                           2U * FLASH_PAGE_SIZE_BYTES,
-                          &target_slot,
-                          &(uint32_t){0U}) == DOWNLOAD_RESULT_NOT_READY);
+                          &target_slot) == DOWNLOAD_RESULT_NOT_READY);
     erase_and_ready();
     assert(Download_Transfer(1U,
                              (const uint8_t[1]){0xA5U},
                              1U) == DOWNLOAD_RESULT_SEQUENCE_ERROR);
     assert(Download_Begin(payload_id,
                           2U * FLASH_PAGE_SIZE_BYTES,
-                          &target_slot,
-                          &(uint32_t){0U}) == DOWNLOAD_RESULT_OK);
+                          &target_slot) == DOWNLOAD_RESULT_OK);
     assert(target_slot == SLOT_B);
-    transfer_bytes(FLASH_PAGE_SIZE_BYTES);
-
-    Download_Init();
-    assert(begin_download(payload_id,
-                           2U * FLASH_PAGE_SIZE_BYTES,
-                           &target_slot) == FLASH_PAGE_SIZE_BYTES);
-    assert(target_slot == SLOT_B);
+    transfer_bytes(2U * FLASH_PAGE_SIZE_BYTES);
+    assert(Download_Exit() == DOWNLOAD_RESULT_OK);
+    assert(Download_Exit() == DOWNLOAD_RESULT_REJECTED);
 }
 
-static void test_different_payload_restarts_at_zero(void)
-{
-    uint8_t first[PAYLOAD_ID_SIZE] = {0};
-    uint8_t second[PAYLOAD_ID_SIZE] = {0};
-    uint8_t target_slot = SLOT_INVALID;
-
-    reset_flash();
-    fill_id(first, 2U);
-    fill_id(second, 3U);
-    assert(begin_download(first, 16384U, &target_slot) == 0U);
-    erase_and_ready();
-
-    Download_Init();
-    assert(begin_download(second, 16384U, &target_slot) == 0U);
-    erase_and_ready();
-
-    Download_Init();
-    assert(begin_download(first, 16384U, &target_slot) == 0U);
-}
-
-static void test_target_slot_mismatch_restarts_at_zero(void)
+static void test_repeated_prepare_is_rejected(void)
 {
     uint8_t payload_id[PAYLOAD_ID_SIZE] = {0};
+    uint8_t block[DOWNLOAD_MAX_TRANSFER_PAYLOAD] = {0x6CU};
     uint8_t target_slot = SLOT_INVALID;
 
     reset_flash();
-    fill_id(payload_id, 4U);
-    assert(begin_download(payload_id,
-                           2U * FLASH_PAGE_SIZE_BYTES,
-                           &target_slot) == 0U);
+    fill_id(payload_id, 0x60U);
+    assert(Download_Prepare() == DOWNLOAD_RESULT_OK);
+    assert(Download_Prepare() == DOWNLOAD_RESULT_SEQUENCE_ERROR);
     erase_and_ready();
-    transfer_bytes(FLASH_PAGE_SIZE_BYTES);
+    assert(Download_Begin(payload_id,
+                          2U * DOWNLOAD_MAX_TRANSFER_PAYLOAD,
+                          &target_slot) == DOWNLOAD_RESULT_OK);
 
-    s_active_slot = SLOT_B;
-    Download_Init();
-    assert(begin_download(payload_id,
-                           2U * FLASH_PAGE_SIZE_BYTES,
-                           &target_slot) == 0U);
-    assert(target_slot == SLOT_A);
+    assert(Download_Transfer(1U, block, sizeof(block)) == DOWNLOAD_RESULT_OK);
+    assert(Download_Transfer(1U, block, sizeof(block)) ==
+           DOWNLOAD_RESULT_WRONG_BLOCK_SEQUENCE);
+    assert(Download_Transfer(2U, block, sizeof(block)) == DOWNLOAD_RESULT_OK);
+    assert(Download_Exit() == DOWNLOAD_RESULT_OK);
+    assert(Download_Exit() == DOWNLOAD_RESULT_REJECTED);
 }
 
-static void test_corrupt_or_old_record_restarts_at_zero(void)
+static void test_transfer_rejects_out_of_range(void)
 {
     uint8_t payload_id[PAYLOAD_ID_SIZE] = {0};
+    uint8_t block[DOWNLOAD_MAX_TRANSFER_PAYLOAD] = {0x5AU};
     uint8_t target_slot = SLOT_INVALID;
 
     reset_flash();
-    fill_id(payload_id, 5U);
-    assert(begin_download(payload_id, 16384U, &target_slot) == 0U);
-    erase_and_ready();
-    s_journal_flash[16U] ^= 0x01U;
-    Download_Init();
-    assert(begin_download(payload_id, 16384U, &target_slot) == 0U);
-
-    reset_flash();
-    assert(begin_download(payload_id, 16384U, &target_slot) == 0U);
-    erase_and_ready();
-    s_journal_flash[4U] = 6U;
-    Download_Init();
-    assert(begin_download(payload_id, 16384U, &target_slot) == 0U);
+    fill_id(payload_id, 0x50U);
+    begin_download(payload_id,
+                   2U * DOWNLOAD_MAX_TRANSFER_PAYLOAD,
+                   &target_slot);
+    assert(Download_Transfer(1U,
+                             block,
+                             sizeof(block)) == DOWNLOAD_RESULT_OK);
+    assert(Download_Transfer(2U,
+                             block,
+                             sizeof(block)) == DOWNLOAD_RESULT_OK);
+    assert(Download_Transfer(3U,
+                             block,
+                             sizeof(block)) == DOWNLOAD_RESULT_OUT_OF_RANGE);
+    assert(Download_Exit() == DOWNLOAD_RESULT_OK);
 }
 
-static void test_resume_erase_survives_second_power_loss(void)
-{
-    uint8_t payload_id[PAYLOAD_ID_SIZE] = {0};
-    uint8_t target_slot = SLOT_INVALID;
-
-    reset_flash();
-    fill_id(payload_id, 0x30U);
-    assert(begin_download(payload_id,
-                           2U * FLASH_PAGE_SIZE_BYTES,
-                           &target_slot) == 0U);
-    erase_and_ready();
-    transfer_bytes(FLASH_PAGE_SIZE_BYTES);
-
-    Download_Init();
-    assert(begin_download(payload_id,
-                           2U * FLASH_PAGE_SIZE_BYTES,
-                           &target_slot) == FLASH_PAGE_SIZE_BYTES);
-    erase_and_ready();
-
-    Download_Init();
-    assert(begin_download(payload_id,
-                           2U * FLASH_PAGE_SIZE_BYTES,
-                           &target_slot) == FLASH_PAGE_SIZE_BYTES);
-}
-
-static void test_only_transfer_exit_commits_completion(void)
+static void test_new_prepare_requires_reset(void)
 {
     uint8_t payload_id[PAYLOAD_ID_SIZE] = {0};
     uint8_t target_slot = SLOT_INVALID;
 
     reset_flash();
     fill_id(payload_id, 0x40U);
-    assert(begin_download(payload_id,
-                           FLASH_PAGE_SIZE_BYTES,
-                           &target_slot) == 0U);
-    erase_and_ready();
-    transfer_bytes(FLASH_PAGE_SIZE_BYTES);
-
-    Download_Init();
-    assert(begin_download(payload_id,
-                           FLASH_PAGE_SIZE_BYTES,
-                           &target_slot) == 0U);
-    erase_and_ready();
-    transfer_bytes(FLASH_PAGE_SIZE_BYTES);
+    begin_download(payload_id, 2U * FLASH_PAGE_SIZE_BYTES, &target_slot);
+    transfer_bytes(2U * FLASH_PAGE_SIZE_BYTES);
     assert(Download_Exit() == DOWNLOAD_RESULT_OK);
 
     Download_Init();
-    assert(begin_download(payload_id,
-                           FLASH_PAGE_SIZE_BYTES,
-                           &target_slot) == FLASH_PAGE_SIZE_BYTES);
+    begin_download(payload_id, 2U * FLASH_PAGE_SIZE_BYTES, &target_slot);
+    assert(target_slot == SLOT_B);
+    transfer_bytes(2U * FLASH_PAGE_SIZE_BYTES);
+    assert(Download_Exit() == DOWNLOAD_RESULT_OK);
 }
 
-static void test_checkpoint_append_failure_replays_from_old_record(void)
-{
-    uint8_t payload_id[PAYLOAD_ID_SIZE] = {0};
-    uint8_t block[DOWNLOAD_MAX_TRANSFER_PAYLOAD] = {0x5AU};
-    uint8_t target_slot = SLOT_INVALID;
-    uint8_t block_sequence = 1U;
-
-    reset_flash();
-    fill_id(payload_id, 0x50U);
-    assert(begin_download(payload_id,
-                           2U * FLASH_PAGE_SIZE_BYTES,
-                           &target_slot) == 0U);
-    erase_and_ready();
-
-    for (uint32_t index = 0U;
-         index < (FLASH_PAGE_SIZE_BYTES / DOWNLOAD_MAX_TRANSFER_PAYLOAD) - 1U;
-         index++)
-    {
-        assert(Download_Transfer(block_sequence, block, sizeof(block)) ==
-               DOWNLOAD_RESULT_OK);
-        block_sequence = (uint8_t)(block_sequence + 1U);
-    }
-
-    s_journal_write_fail = true;
-    assert(Download_Transfer(block_sequence, block, sizeof(block)) ==
-           DOWNLOAD_RESULT_PROGRAMMING_FAILURE);
-    assert(Download_Transfer((uint8_t)(block_sequence + 1U),
-                             block,
-                             sizeof(block)) == DOWNLOAD_RESULT_SEQUENCE_ERROR);
-
-    s_journal_write_fail = false;
-    assert(begin_download(payload_id,
-                           2U * FLASH_PAGE_SIZE_BYTES,
-                           &target_slot) == 0U);
-}
-
-static void test_repeated_download_requests_are_idempotent(void)
+static void test_transfer_restarts_after_exit(void)
 {
     uint8_t payload_id[PAYLOAD_ID_SIZE] = {0};
     uint8_t other_payload_id[PAYLOAD_ID_SIZE] = {0};
-    uint8_t block[DOWNLOAD_MAX_TRANSFER_PAYLOAD] = {0x6CU};
     uint8_t target_slot = SLOT_INVALID;
 
     reset_flash();
-    fill_id(payload_id, 0x60U);
-    fill_id(other_payload_id, 0x70U);
-    assert(Download_Prepare(payload_id,
-                            2U * DOWNLOAD_MAX_TRANSFER_PAYLOAD) ==
-           DOWNLOAD_RESULT_OK);
-    assert(Download_Prepare(payload_id,
-                            2U * DOWNLOAD_MAX_TRANSFER_PAYLOAD) ==
-           DOWNLOAD_RESULT_OK);
-    assert(Download_Prepare(other_payload_id,
-                            2U * DOWNLOAD_MAX_TRANSFER_PAYLOAD) ==
-           DOWNLOAD_RESULT_SEQUENCE_ERROR);
-    erase_and_ready();
-    assert(Download_Begin(payload_id,
-                          2U * DOWNLOAD_MAX_TRANSFER_PAYLOAD,
-                          &target_slot,
-                          &(uint32_t){0U}) == DOWNLOAD_RESULT_OK);
-
-    assert(Download_Transfer(1U, block, sizeof(block)) == DOWNLOAD_RESULT_OK);
-    assert(Download_Transfer(1U, block, sizeof(block)) == DOWNLOAD_RESULT_OK);
-    block[0] ^= 0x01U;
-    assert(Download_Transfer(1U, block, sizeof(block)) ==
-           DOWNLOAD_RESULT_WRONG_BLOCK_SEQUENCE);
-    block[0] ^= 0x01U;
-    assert(Download_Transfer(2U, block, sizeof(block)) == DOWNLOAD_RESULT_OK);
+    fill_id(payload_id, 0x41U);
+    fill_id(other_payload_id, 0x42U);
+    begin_download(payload_id, FLASH_PAGE_SIZE_BYTES, &target_slot);
+    transfer_bytes(FLASH_PAGE_SIZE_BYTES);
     assert(Download_Exit() == DOWNLOAD_RESULT_OK);
+
+    assert(Download_Begin(other_payload_id,
+                          FLASH_PAGE_SIZE_BYTES,
+                          &target_slot) == DOWNLOAD_RESULT_SEQUENCE_ERROR);
+    assert(Download_Begin(payload_id,
+                          FLASH_PAGE_SIZE_BYTES,
+                          &target_slot) == DOWNLOAD_RESULT_OK);
+    transfer_bytes(FLASH_PAGE_SIZE_BYTES);
     assert(Download_Exit() == DOWNLOAD_RESULT_OK);
 }
 
 int main(void)
 {
-    test_same_payload_resumes_durable_offset();
-    test_different_payload_restarts_at_zero();
-    test_target_slot_mismatch_restarts_at_zero();
-    test_corrupt_or_old_record_restarts_at_zero();
-    test_resume_erase_survives_second_power_loss();
-    test_only_transfer_exit_commits_completion();
-    test_checkpoint_append_failure_replays_from_old_record();
-    test_repeated_download_requests_are_idempotent();
+    test_full_transfer_flow();
+    test_repeated_prepare_is_rejected();
+    test_transfer_rejects_out_of_range();
+    test_new_prepare_requires_reset();
+    test_transfer_restarts_after_exit();
     return 0;
 }

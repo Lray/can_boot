@@ -13,8 +13,8 @@ typedef enum
 /** Clear the RAM-resident Flash erase job. */
 void EraseJob_Reset(void);
 
-/** Start erasing the selected application slot from a page-aligned offset. */
-int EraseJob_Start(uint8_t target_slot, uint32_t start_offset);
+/** Start erasing the selected application slot in full. */
+int EraseJob_Start(uint8_t target_slot);
 
 /** Erase one mapped Flash sector and report the job result. */
 erase_job_status_t EraseJob_Poll(void);

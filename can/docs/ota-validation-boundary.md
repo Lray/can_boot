@@ -8,7 +8,7 @@ CAN 应用不承担 MCUboot 镜像安全验证职责。
 - 目标槽位、地址、长度和活动槽位保护；
 - `TransferData` 的块序号、接收长度、Flash 写入和读回错误；
 - `RequestTransferExit` 后确认数据已完整写入；
-- 保存可恢复下载 checkpoint；启动自检成功后由确认路径写入 `image_ok`。
+- 启动自检成功后由确认路径写入 `image_ok`。
 
 ## MCUboot 负责
 

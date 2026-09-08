@@ -23,10 +23,9 @@ void EraseJob_Reset(void)
     (void)memset(&s_erase_job, 0, sizeof(s_erase_job));
 }
 
-int EraseJob_Start(uint8_t target_slot, uint32_t start_offset)
+int EraseJob_Start(uint8_t target_slot)
 {
     const struct flash_area *area = NULL;
-    struct flash_sector sector = {0};
     int area_id = -1;
 
     if (s_erase_job.area != NULL)
@@ -45,16 +44,8 @@ int EraseJob_Start(uint8_t target_slot, uint32_t start_offset)
         return -1;
     }
 
-    if ((start_offset >= flash_area_get_size(area)) ||
-        (flash_area_get_sector(area, start_offset, &sector) != 0) ||
-        (flash_sector_get_off(&sector) != start_offset))
-    {
-        flash_area_close(area);
-        return -1;
-    }
-
     s_erase_job.area = area;
-    s_erase_job.erase_offset = start_offset;
+    s_erase_job.erase_offset = 0U;
     return 0;
 }
 

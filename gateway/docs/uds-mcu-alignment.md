@@ -41,7 +41,7 @@ gateway 是 MCU 的 UDS client，不是第二个 UDS server。它不生成 `0x78
 - 只有长度正好为 3、SID 与原请求相同的 `7F <SID> 78` 才是 ResponsePending。
 - 每个有效 `0x78` 仅把下一次等待切换到当前协商的 P2*；最终响应仍须是匹配的正响应或终态 NRC。
 - gateway 最多接受 8 个 `0x78`；第 9 个返回 `UDS_ERR_RESPONSE_PENDING_LIMIT`，避免无限等待。
-- `0x78` 是通用 UDS 事务能力，不承担下载擦除进度。下载准备由下述 `F001` 例程的结果轮询表达。
+- `0x78` 是通用 UDS 事务能力，不承担下载擦除进度。擦除进度由下述 `FF00` 例程的结果轮询表达。
 
 ## 服务边界
 
@@ -49,10 +49,12 @@ gateway 是 MCU 的 UDS client，不是第二个 UDS server。它不生成 `0x78
 调用使用类型化 API；诊断/回归工具复用同一
 P2/P2*、`0x78`、NRC 长度与事务上限逻辑。
 
-下载的固定顺序是：`0x31 01 F0 01 <size><payload_id>` 启动准备，轮询
-`0x31 03 F0 01` 直到结果为 `ready`，再发送扩展 `0x34`。`0x34` 仅绑定描述符、
-返回目标槽与恢复偏移；它不会擦除 Flash 或返回 `0x78`。
+下载的固定顺序是：`0x31 01 FF 00` 启动 EraseMemory 例程（请求不带参数），轮询
+`0x31 03 FF 00` 直到正响应携带 4 字节 BE 结果记录（未完成回 NRC `0x24`；记录
+`0x00000000` 成功 / `0x00000072` 失败），再发送扩展 `0x34`。`0x34` 绑定描述符
+（payload SHA-256 与大小）、校验大小适配目标槽并返回目标槽；它不会擦除 Flash
+或返回 `0x78`。
 
 相关 host tests 位于 `tests/test_uds_client.c` 和 `tests/test_isotp_channel.c`：它们覆盖 P2* wire
 解码、会话协商时序、首个与重复 `0x78`、8 个 pending 上限、畸形 NRC，以及 ISO-TP Flow
-Control 编码范围；`tests/test_resume_transfer.c` 还覆盖下载准备例程到 `0x34` 的顺序。
+Control 编码范围；`tests/test_transfer.c` 还覆盖下载准备例程到 `0x34` 的顺序。

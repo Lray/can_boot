@@ -162,8 +162,7 @@ cd /opt/can-ota-gateway
 | UDS timing | 初始默认 `P2=50 ms`、`P2*=5000 ms`；每次 `0x10` 后以 MCU 公布的参数为准（P2* wire unit=10 ms），TesterPresent=1000 ms |
 | TransferData payload | 256 bytes |
 | maxNumberOfBlockLength | 258 |
-| RequestDownload extension | `payload_id`, target slot, resume offset |
-| Update checkpoint | 8192 bytes |
+| RequestDownload extension | `payload_id`, target slot |
 
 共享常量以 `src/profile.h` 为准；README 与代码冲突时必须先修正文档和
 契约，再修改生产实现。

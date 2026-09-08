@@ -1,5 +1,5 @@
 CompileFlags:
-  CompilationDatabase: build/Debug
+  CompilationDatabase: build
 Diagnostics:
   ClangTidy:
     Add:
@@ -20,9 +20,6 @@ Diagnostics:
       readability-identifier-naming.VariableCase: lower_case
       readability-identifier-naming.PrivateMemberPrefix: m_
       readability-identifier-naming.ClassCase: CamelCase
-  Suppress:
-    - Drivers/*
-    - ThirdParty/*
 Index:
   Background: Build
 Hover:

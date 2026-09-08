@@ -30,7 +30,7 @@ int security_access_unlock(UdsClient *client, const TokenSignerClient_t *signer)
     rc = uds_security_request_seed(client, seed, sizeof(seed), &seed_len);
     if (rc == 0)
     {
-        /*请求签名进程对种子挑战完成签名*/
+        /*请求签名进程对seed完成签名*/
         const int signer_rc = token_signer_client_issue(signer, seed, seed_len,
                                                         token, sizeof(token), &token_len);
         if (signer_rc != 0)

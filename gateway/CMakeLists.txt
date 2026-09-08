@@ -5,6 +5,21 @@ set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
+# 添加调试符号支持
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING
+        "Choose the type of build, options are: Debug Release RelWithDebInfo MinSizeRel."
+        FORCE)
+endif()
+
+# Debug模式：完整调试符号 + 无优化
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    add_compile_options(-g3 -O0)
+# RelWithDebInfo模式：调试符号 + 优化（推荐用于调试生产问题）
+elseif(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
+    add_compile_options(-g -O2)
+endif()
+
 option(BUILD_TESTING "Build host-only Gateway tests" OFF)
 if(BUILD_TESTING)
     enable_testing()
@@ -40,7 +55,7 @@ target_link_libraries(gateway-hash PUBLIC gateway-byte-order)
 
 add_library(gateway-core STATIC
     src/util/util.c
-    src/ota/resume_transfer.c
+    src/ota/transfer.c
     src/ota/ota_snapshot.c
     src/package/package_metadata.c
     src/uds/uds_client.c
@@ -267,11 +282,11 @@ target_include_directories(test-gateway-log-receiver PRIVATE
 )
 add_test(NAME gateway-log-receiver COMMAND test-gateway-log-receiver)
 
-add_executable(test-gateway-resume-transfer
-    tests/test_resume_transfer.c
+add_executable(test-gateway-transfer
+    tests/test_transfer.c
 )
-target_link_libraries(test-gateway-resume-transfer PRIVATE gateway-core)
-add_test(NAME gateway-resume-transfer COMMAND test-gateway-resume-transfer)
+target_link_libraries(test-gateway-transfer PRIVATE gateway-core)
+add_test(NAME gateway-transfer COMMAND test-gateway-transfer)
 
 add_executable(test-gateway-package-store
     tests/test_package_store.c

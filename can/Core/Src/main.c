@@ -119,7 +119,7 @@ static void DispatchUdsMessage(void *link,
 {
     (void)link;
     (void)context;
-    UDS_Dispatch(payload, (uint16_t)length);
+    UDS_ServerDispatch(payload, (uint16_t)length);
 }
 
 static bool ReceiveUdsCanFrame(const can_frame_t *frame)
@@ -200,9 +200,9 @@ static void OtaThreadEntry(void *parameter)
 
         CAN_Transport_Poll();
         isotp_poll(&s_uds_isotp);
-        UDS_Poll(now);
+        UDS_ServerPoll(now);
         Download_Poll();
-        if (UDS_ConsumeAcceptedReset())
+        if (UDS_ServerConsumeAcceptedReset())
         {
             RequestReset();
         }
@@ -318,7 +318,7 @@ int main(void)
     }
     SendStartupCheckpoint(0x04U);
 
-    UDS_Init(&s_uds_isotp);
+    UDS_ServerInit(&s_uds_isotp);
     SendStartupCheckpoint(0x02U);
     {
         image_confirm_result_t confirm_result =

@@ -91,7 +91,7 @@ target_include_directories(isotp_stm32_host_test BEFORE PRIVATE
 target_link_libraries(isotp_stm32_host_test PRIVATE simon_cahill::isotp_c)
 configure_host_test(isotp_stm32_host_test)
 
-# ---- download and checkpoint/identity transaction host test ----
+# ---- download and identity transaction host test ----
 add_executable(download_resume_host_test
     download_resume_host_test.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../download/download.c

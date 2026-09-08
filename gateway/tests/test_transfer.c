@@ -4,12 +4,12 @@
 #include <string.h>
 
 #include "profile.h"
-#include "resume_transfer.h"
+#include "transfer.h"
 #include "sha256.h"
 #include "transport.h"
 #include "uds_client.h"
 
-#define TEST_IMAGE_SIZE (2u * META_CHECKPOINT_INTERVAL)
+#define TEST_IMAGE_SIZE (2u * 8192u)
 #define MAX_EXPECTED_TRANSACTIONS 140u
 
 typedef struct
@@ -78,7 +78,6 @@ static void expect_request_download(FakeTransport *fake,
                                     int index,
                                     const uint8_t payload_id[PAYLOAD_ID_SIZE],
                                     uint32_t image_size,
-                                    uint32_t resume_offset,
                                     uint8_t target_slot)
 {
     uint8_t *send = fake->expected_send[index];
@@ -101,28 +100,19 @@ static void expect_request_download(FakeTransport *fake,
     response[UDS_REQUEST_DOWNLOAD_RESPONSE_MAX_BLOCK_OFFSET + 1U] =
         (uint8_t)TRANSFER_MAX_BLOCK_LENGTH;
     response[UDS_REQUEST_DOWNLOAD_RESPONSE_TARGET_SLOT_OFFSET] = target_slot;
-    put_u32_be(response + UDS_REQUEST_DOWNLOAD_RESPONSE_RESUME_OFFSET,
-               resume_offset);
     fake->response_len[index] = UDS_REQUEST_DOWNLOAD_RESPONSE_LEN;
 }
 
-static void expect_prepare_download(FakeTransport *fake,
-                                    int index,
-                                    const uint8_t payload_id[PAYLOAD_ID_SIZE],
-                                    uint32_t image_size)
+static void expect_erase_memory_start(FakeTransport *fake, int index)
 {
     uint8_t *send = fake->expected_send[index];
     uint8_t *response = fake->responses[index];
 
     send[0] = SID_ROUTINE_CONTROL;
     send[1] = ROUTINE_CONTROL_START;
-    send[2] = (uint8_t)(ROUTINE_ID_PREPARE_DOWNLOAD >> 8);
-    send[3] = (uint8_t)ROUTINE_ID_PREPARE_DOWNLOAD;
-    put_u32_be(send + UDS_PREPARE_DOWNLOAD_ROUTINE_SIZE_OFFSET, image_size);
-    memcpy(send + UDS_PREPARE_DOWNLOAD_ROUTINE_PAYLOAD_ID_OFFSET,
-           payload_id,
-           PAYLOAD_ID_SIZE);
-    fake->expected_send_len[index] = UDS_PREPARE_DOWNLOAD_ROUTINE_REQUEST_LEN;
+    send[2] = (uint8_t)(ROUTINE_ID_ERASE_MEMORY >> 8);
+    send[3] = (uint8_t)ROUTINE_ID_ERASE_MEMORY;
+    fake->expected_send_len[index] = UDS_ROUTINE_CONTROL_REQUEST_LEN;
     response[0] = SID_ROUTINE_CONTROL_POS;
     response[1] = ROUTINE_CONTROL_START;
     response[2] = send[2];
@@ -130,22 +120,47 @@ static void expect_prepare_download(FakeTransport *fake,
     fake->response_len[index] = UDS_ROUTINE_CONTROL_REQUEST_LEN;
 }
 
-static void expect_prepare_download_ready(FakeTransport *fake, int index)
+static void expect_erase_memory_results_pending(FakeTransport *fake, int index)
 {
     uint8_t *send = fake->expected_send[index];
     uint8_t *response = fake->responses[index];
 
     send[0] = SID_ROUTINE_CONTROL;
     send[1] = ROUTINE_CONTROL_REQUEST_RESULTS;
-    send[2] = (uint8_t)(ROUTINE_ID_PREPARE_DOWNLOAD >> 8);
-    send[3] = (uint8_t)ROUTINE_ID_PREPARE_DOWNLOAD;
+    send[2] = (uint8_t)(ROUTINE_ID_ERASE_MEMORY >> 8);
+    send[3] = (uint8_t)ROUTINE_ID_ERASE_MEMORY;
+    fake->expected_send_len[index] = UDS_ROUTINE_CONTROL_REQUEST_LEN;
+    response[0] = NEGATIVE_RESPONSE_SID;
+    response[1] = SID_ROUTINE_CONTROL;
+    response[2] = NRC_REQUEST_SEQUENCE_ERROR;
+    fake->response_len[index] = UDS_NEGATIVE_RESPONSE_LENGTH;
+}
+
+static void
+expect_erase_memory_results_record(FakeTransport *fake, int index, uint32_t record)
+{
+    uint8_t *send = fake->expected_send[index];
+    uint8_t *response = fake->responses[index];
+
+    send[0] = SID_ROUTINE_CONTROL;
+    send[1] = ROUTINE_CONTROL_REQUEST_RESULTS;
+    send[2] = (uint8_t)(ROUTINE_ID_ERASE_MEMORY >> 8);
+    send[3] = (uint8_t)ROUTINE_ID_ERASE_MEMORY;
     fake->expected_send_len[index] = UDS_ROUTINE_CONTROL_REQUEST_LEN;
     response[0] = SID_ROUTINE_CONTROL_POS;
     response[1] = ROUTINE_CONTROL_REQUEST_RESULTS;
     response[2] = send[2];
     response[3] = send[3];
-    response[4] = ROUTINE_PREPARE_DOWNLOAD_STATUS_READY;
-    fake->response_len[index] = UDS_PREPARE_DOWNLOAD_ROUTINE_RESULT_LEN;
+    response[4] = (uint8_t)(record >> 24);
+    response[5] = (uint8_t)(record >> 16);
+    response[6] = (uint8_t)(record >> 8);
+    response[7] = (uint8_t)record;
+    fake->response_len[index] = UDS_ERASE_MEMORY_RESULT_LEN;
+}
+
+static void expect_erase_memory_results(FakeTransport *fake, int index)
+{
+    expect_erase_memory_results_record(fake, index, ROUTINE_ERASE_RESULT_OK);
 }
 
 static void expect_transfer(FakeTransport *fake,
@@ -236,7 +251,6 @@ static void test_uds_download_primitives(void)
                             0,
                             payload_id,
                             sizeof(block),
-                            0u,
                             OTA_SLOT_B);
     expect_transfer(&fake, 1, 0x01u, block, sizeof(block));
     expect_transfer_exit(&fake, 2);
@@ -247,29 +261,45 @@ static void test_uds_download_primitives(void)
                                 &response) == 0);
     assert(response.max_block_len == TRANSFER_MAX_BLOCK_LENGTH);
     assert(response.target_slot == OTA_SLOT_B);
-    assert(response.resume_offset == 0u);
     assert(uds_transfer_data(&client, 0x01u, block, sizeof(block)) == 0);
     assert(uds_request_transfer_exit(&client) == 0);
 }
 
-static void test_uds_prepare_download_primitives(void)
+static void test_uds_erase_memory_primitives(void)
 {
     FakeTransport fake = {0};
     UdsClient client = make_client(&fake);
-    uint8_t payload_id[PAYLOAD_ID_SIZE] = {0};
-    bool ready = false;
+    bool complete = false;
+    int rc = 0;
 
-    payload_id[0] = 0xA5u;
-    expect_prepare_download(&fake, 0, payload_id, 256u);
-    expect_prepare_download_ready(&fake, 1);
-    fake.responses[1][4] = ROUTINE_PREPARE_DOWNLOAD_STATUS_PENDING;
-    expect_prepare_download_ready(&fake, 2);
+    expect_erase_memory_start(&fake, 0);
+    expect_erase_memory_results_pending(&fake, 1);
+    expect_erase_memory_results(&fake, 2);
 
-    assert(uds_prepare_download(&client, payload_id, 256u) == 0);
-    assert(uds_prepare_download_ready(&client, &ready) == 0);
-    assert(!ready);
-    assert(uds_prepare_download_ready(&client, &ready) == 0);
-    assert(ready);
+    assert(uds_erase_memory(&client) == 0);
+    rc = uds_erase_memory_results(&client, &complete);
+    assert(rc == UDS_ERR_NEGATIVE_RESPONSE);
+    assert(client.last_nrc == NRC_REQUEST_SEQUENCE_ERROR);
+    assert(!complete);
+    assert(uds_erase_memory_results(&client, &complete) == 0);
+    assert(complete);
+}
+
+static void test_uds_erase_memory_failure_record(void)
+{
+    FakeTransport fake = {0};
+    UdsClient client = make_client(&fake);
+    bool complete = false;
+    int rc = 0;
+
+    expect_erase_memory_start(&fake, 0);
+    expect_erase_memory_results_record(&fake, 1, ROUTINE_ERASE_RESULT_FAILURE);
+
+    assert(uds_erase_memory(&client) == 0);
+    rc = uds_erase_memory_results(&client, &complete);
+    assert(rc == UDS_ERR_NEGATIVE_RESPONSE);
+    assert(client.last_nrc == NRC_GENERAL_PROGRAMMING_FAILURE);
+    assert(!complete);
 }
 
 static void test_uds_request_download_negative_response(void)
@@ -279,7 +309,7 @@ static void test_uds_request_download_negative_response(void)
     UdsDownloadResponse response = {0};
     uint8_t payload_id[PAYLOAD_ID_SIZE] = {0};
 
-    expect_request_download(&fake, 0, payload_id, 0U, 0U, OTA_SLOT_B);
+    expect_request_download(&fake, 0, payload_id, 0U, OTA_SLOT_B);
     fake.responses[0][0] = NEGATIVE_RESPONSE_SID;
     fake.responses[0][1] = SID_REQUEST_DOWNLOAD;
     fake.responses[0][2] = NRC_REQUEST_OUT_OF_RANGE;
@@ -297,7 +327,7 @@ static void test_uds_request_download_length_mismatch(void)
     UdsDownloadResponse response = {0};
     uint8_t payload_id[PAYLOAD_ID_SIZE] = {0};
 
-    expect_request_download(&fake, 0, payload_id, 512U, 0U, OTA_SLOT_B);
+    expect_request_download(&fake, 0, payload_id, 512U, OTA_SLOT_B);
     fake.response_len[0] = 3U;
 
     assert(uds_request_download(&client, payload_id, 512U, &response) ==
@@ -313,7 +343,7 @@ static void test_uds_transfer_wrong_block_sequence_nrc(void)
     expect_transfer(&fake, 0, 0x02U, block, sizeof(block));
     fake.responses[0][0] = NEGATIVE_RESPONSE_SID;
     fake.responses[0][1] = SID_TRANSFER_DATA;
-    fake.responses[0][2] = NRC_WRONG_BLOCK_SEQUENCE_COUNTER;
+    fake.responses[0][2] = NRC_REQUEST_SEQUENCE_ERROR;
     fake.response_len[0] = 3U;
 
     assert(uds_transfer_data(&client,
@@ -321,7 +351,7 @@ static void test_uds_transfer_wrong_block_sequence_nrc(void)
                              block,
                              sizeof(block)) ==
            UDS_ERR_NEGATIVE_RESPONSE);
-    assert(client.last_nrc == NRC_WRONG_BLOCK_SEQUENCE_COUNTER);
+    assert(client.last_nrc == NRC_REQUEST_SEQUENCE_ERROR);
 }
 
 static void test_execute_fresh_transfer(void)
@@ -335,13 +365,12 @@ static void test_execute_fresh_transfer(void)
 
     fill_image(image, sizeof(image));
     image_payload_id(image, TEST_IMAGE_SIZE, payload_id);
-    expect_prepare_download(&fake, 0, payload_id, TEST_IMAGE_SIZE);
-    expect_prepare_download_ready(&fake, 1);
+    expect_erase_memory_start(&fake, 0);
+    expect_erase_memory_results(&fake, 1);
     expect_request_download(&fake,
-                             2,
+                            2,
                             payload_id,
                             TEST_IMAGE_SIZE,
-                            0u,
                             OTA_SLOT_B);
     next_index = expect_transfer_range(&fake,
                                        3,
@@ -350,104 +379,13 @@ static void test_execute_fresh_transfer(void)
                                        TEST_IMAGE_SIZE);
     expect_transfer_exit(&fake, next_index);
 
-    assert(resume_transfer_execute(&client,
+    assert(transfer_execute(&client,
                                    payload_id,
                                    TEST_IMAGE_SIZE,
                                    image,
                                    &target_slot) == 0);
     assert(target_slot == OTA_SLOT_B);
     assert(fake.send_count == next_index + 1);
-}
-
-static void test_execute_resumed_transfer(void)
-{
-    FakeTransport fake = {0};
-    UdsClient client = make_client(&fake);
-    uint8_t image[TEST_IMAGE_SIZE] = {0};
-    uint8_t payload_id[PAYLOAD_ID_SIZE];
-    uint8_t target_slot = OTA_SLOT_A;
-    int next_index = 0;
-
-    fill_image(image, sizeof(image));
-    image_payload_id(image, TEST_IMAGE_SIZE, payload_id);
-    expect_prepare_download(&fake, 0, payload_id, TEST_IMAGE_SIZE);
-    expect_prepare_download_ready(&fake, 1);
-    expect_request_download(&fake,
-                             2,
-                            payload_id,
-                            TEST_IMAGE_SIZE,
-                            META_CHECKPOINT_INTERVAL,
-                            OTA_SLOT_B);
-    next_index = expect_transfer_range(&fake,
-                                       3,
-                                       image,
-                                       META_CHECKPOINT_INTERVAL,
-                                       TEST_IMAGE_SIZE);
-    expect_transfer_exit(&fake, next_index);
-
-    assert(resume_transfer_execute(&client,
-                                   payload_id,
-                                   TEST_IMAGE_SIZE,
-                                   image,
-                                   &target_slot) == 0);
-    assert(target_slot == OTA_SLOT_B);
-    assert(fake.send_count == next_index + 1);
-}
-
-static void test_execute_already_complete(void)
-{
-    FakeTransport fake = {0};
-    UdsClient client = make_client(&fake);
-    uint8_t image[TEST_IMAGE_SIZE] = {0};
-    uint8_t payload_id[PAYLOAD_ID_SIZE];
-    uint8_t target_slot = OTA_SLOT_A;
-
-    fill_image(image, sizeof(image));
-    image_payload_id(image, TEST_IMAGE_SIZE, payload_id);
-    expect_prepare_download(&fake, 0, payload_id, TEST_IMAGE_SIZE);
-    expect_prepare_download_ready(&fake, 1);
-    expect_request_download(&fake,
-                             2,
-                            payload_id,
-                            TEST_IMAGE_SIZE,
-                            TEST_IMAGE_SIZE,
-                            OTA_SLOT_B);
-
-    assert(resume_transfer_execute(&client,
-                                   payload_id,
-                                   TEST_IMAGE_SIZE,
-                                   image,
-                                   &target_slot) == 0);
-    assert(target_slot == OTA_SLOT_B);
-    assert(fake.send_count == 3);
-}
-
-static void test_invalid_resume_response_is_rejected(void)
-{
-    FakeTransport fake = {0};
-    UdsClient client = make_client(&fake);
-    uint8_t image[TEST_IMAGE_SIZE] = {0};
-    uint8_t payload_id[PAYLOAD_ID_SIZE];
-    uint8_t target_slot = OTA_SLOT_A;
-
-    fill_image(image, sizeof(image));
-    image_payload_id(image, TEST_IMAGE_SIZE, payload_id);
-    expect_prepare_download(&fake, 0, payload_id, TEST_IMAGE_SIZE);
-    expect_prepare_download_ready(&fake, 1);
-    expect_request_download(&fake,
-                             2,
-                            payload_id,
-                            TEST_IMAGE_SIZE,
-                            META_CHECKPOINT_INTERVAL / 2u,
-                            OTA_SLOT_B);
-
-    assert(resume_transfer_execute(&client,
-                                   payload_id,
-                                   TEST_IMAGE_SIZE,
-                                   image,
-                                   &target_slot) ==
-           RESUME_TRANSFER_ERR_CHECKPOINT_ALIGNMENT);
-    assert(fake.send_count == 3);
 }
 
 static void test_invalid_target_slot_is_rejected(void)
@@ -460,21 +398,20 @@ static void test_invalid_target_slot_is_rejected(void)
 
     fill_image(image, sizeof(image));
     image_payload_id(image, TEST_IMAGE_SIZE, payload_id);
-    expect_prepare_download(&fake, 0, payload_id, TEST_IMAGE_SIZE);
-    expect_prepare_download_ready(&fake, 1);
+    expect_erase_memory_start(&fake, 0);
+    expect_erase_memory_results(&fake, 1);
     expect_request_download(&fake,
-                             2,
+                            2,
                             payload_id,
                             TEST_IMAGE_SIZE,
-                            0u,
                             2u);
 
-    assert(resume_transfer_execute(&client,
+    assert(transfer_execute(&client,
                                    payload_id,
                                    TEST_IMAGE_SIZE,
                                    image,
                                    &target_slot) ==
-           RESUME_TRANSFER_ERR_IDENTITY_MISMATCH);
+           TRANSFER_ERR_IDENTITY_MISMATCH);
     assert(fake.send_count == 3);
 }
 
@@ -496,14 +433,12 @@ static void test_image_changes_payload_id(void)
 int main(void)
 {
     test_uds_download_primitives();
-    test_uds_prepare_download_primitives();
+    test_uds_erase_memory_primitives();
+    test_uds_erase_memory_failure_record();
     test_uds_request_download_negative_response();
     test_uds_request_download_length_mismatch();
     test_uds_transfer_wrong_block_sequence_nrc();
     test_execute_fresh_transfer();
-    test_execute_resumed_transfer();
-    test_execute_already_complete();
-    test_invalid_resume_response_is_rejected();
     test_invalid_target_slot_is_rejected();
     test_image_changes_payload_id();
     return 0;

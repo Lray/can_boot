@@ -42,7 +42,6 @@ typedef int (*UdsReconnectFn_t)(void *ctx, UdsClient *client);
 typedef struct
 {
     uint8_t target_slot;
-    uint32_t resume_offset;
     uint16_t max_block_len;
 } UdsDownloadResponse;
 
@@ -74,12 +73,16 @@ int uds_security_request_seed(UdsClient *client, uint8_t *seed_out, size_t seed_
                                       size_t *seed_len_out);
 int uds_security_send_token(UdsClient *client, const uint8_t *token,
                                      size_t token_len);
-/** Start the product RoutineControl preparation for one image. */
-int uds_prepare_download(UdsClient *client,
-                         const uint8_t payload_id[PAYLOAD_ID_SIZE],
-                         uint32_t image_size);
-/** Query whether the prepared image can enter RequestDownload. */
-int uds_prepare_download_ready(UdsClient *client, bool *ready_out);
+/** Start RoutineControl 0xFF00 (EraseMemory) to erase the inactive MCU OTA slot. */
+int uds_erase_memory(UdsClient *client);
+/**
+ * Poll the EraseMemory routine results.
+ *
+ * While erasing, the MCU answers NRC 0x24 (rc = UDS_ERR_NEGATIVE_RESPONSE).
+ * On completion, complete_out is true for the 0x00000000 record; the failure
+ * record 0x00000072 maps to UDS_ERR_NEGATIVE_RESPONSE with last_nrc = 0x72.
+ */
+int uds_erase_memory_results(UdsClient *client, bool *complete_out);
 /**
  * Read a DID and copy only its positive-response payload.
  *
@@ -98,8 +101,8 @@ int uds_read_did(UdsClient *client, uint16_t did, uint8_t *data_out, size_t data
  * @param client Ready UDS client.
  * @param payload_id SHA-256 of the complete image byte stream.
  * @param image_size Complete image size in bytes.
- * @param response_out Receives the selected target, durable resume cursor, and
- *                     maximum TransferData block length.
+ * @param response_out Receives the selected target slot and maximum
+ *                     TransferData block length.
  * @return 0 on success or a UDS_ERR_* value on failure.
  */
 int uds_request_download(UdsClient *client,

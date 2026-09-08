@@ -8,7 +8,6 @@
 #define FLASH_AREA_IMAGE_0 1U
 #define FLASH_AREA_IMAGE_1 2U
 #define FLASH_AREA_BOOT_USER 3U
-#define FLASH_AREA_DOWNLOAD_JOURNAL 4U
 
 /* Logical application-slot numbers are persisted in boot/download records. */
 #define SLOT_A 0U
@@ -32,9 +31,6 @@
 #define FLASH_AREA_BOOT_USER_SIZE FLASH_PAGE_SIZE_BYTES
 #define FLASH_AREA_BOOT_USER_ADDRESS \
     (FLASH_BASE_ADDRESS + FLASH_SIZE_BYTES - FLASH_AREA_BOOT_USER_SIZE)
-#define FLASH_AREA_DOWNLOAD_JOURNAL_SIZE (2U * FLASH_PAGE_SIZE_BYTES)
-#define FLASH_AREA_DOWNLOAD_JOURNAL_ADDRESS \
-    (FLASH_AREA_BOOT_USER_ADDRESS - FLASH_AREA_DOWNLOAD_JOURNAL_SIZE)
 #define BOOT_USER_AREA_START FLASH_AREA_BOOT_USER_ADDRESS
 
 #if (FLASH_AREA_IMAGE_0_SIZE != FLASH_AREA_IMAGE_1_SIZE)
@@ -48,17 +44,6 @@
 #if (FLASH_AREA_IMAGE_1_ADDRESS != \
      (FLASH_AREA_IMAGE_0_ADDRESS + FLASH_AREA_IMAGE_0_SIZE))
 #error "Image 1 must follow image 0."
-#endif
-
-#if ((FLASH_AREA_DOWNLOAD_JOURNAL_ADDRESS + \
-      FLASH_AREA_DOWNLOAD_JOURNAL_SIZE) != \
-     FLASH_AREA_BOOT_USER_ADDRESS)
-#error "Download journal must precede the boot-user area."
-#endif
-
-#if ((FLASH_AREA_IMAGE_1_ADDRESS + FLASH_AREA_IMAGE_1_SIZE) > \
-     FLASH_AREA_DOWNLOAD_JOURNAL_ADDRESS)
-#error "Application image areas overlap download journal storage."
 #endif
 
 #endif /* SYSFLASH_H */

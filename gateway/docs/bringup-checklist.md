@@ -78,7 +78,7 @@ Required evidence:
 - positive `0x22` reads for `0xF180`, `0xF181`, `0xF182`, `0xF1A0`, `0xF1A6`, and `0xF1A8`
 - one negative response path, preferably unsupported DID `0xFFFF`
 - `0x78 ResponsePending` is unit-tested as a generic UDS transaction behavior; OTA erase
-  progress is validated through the `0x31 F001` routine result instead
+  progress is validated through the `0x31 FF00` routine result instead
 - link remains `ERROR-ACTIVE` with stable error counters
 
 ## OTA integration
@@ -117,9 +117,8 @@ run against a real MCU. No host fake is a substitute for these checks.
 
 Required evidence:
 
-- checkpoint interruption and reconnect/resume are captured through the prepare routine
-  followed by extended `RequestDownload` journal matching
-- wrong BSC returns NRC `0x73`, and the gateway stops the stream
+- the EraseMemory routine followed by extended `RequestDownload` binds identity before transfer
+- wrong BSC returns NRC `0x24` (aligned with iso14229), and the gateway stops the stream
 - a malformed or wrongly signed image may pass transport pre-check only if its
   format is valid; after reset MCUboot must reject it and retain the previous slot
 - confirm-missing rollback evidence captures the test-boot version and

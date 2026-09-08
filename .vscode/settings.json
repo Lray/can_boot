@@ -1,0 +1,12 @@
+{
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/gateway/build/compile_commands.json",
+    "clangd.arguments": [
+        "--compile-commands-dir=${workspaceFolder}/gateway/build",
+        "--background-index",
+        "--clang-tidy"
+    ],
+    "files.associations": {
+        "*.h": "c",
+        "*.c": "c"
+    }
+}

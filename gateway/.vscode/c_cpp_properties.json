@@ -3,9 +3,7 @@
         {
             "name": "WSL-Gateway",
             "compilerPath": "/usr/bin/cc",
-            "compileCommands": [
-                "${workspaceFolder}/build/compile_commands.json"
-            ],
+            "compileCommands": "${workspaceFolder}/build/compile_commands.json",
             "cStandard": "c99",
             "intelliSenseMode": "linux-gcc-x64"
         }

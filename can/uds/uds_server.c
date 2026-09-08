@@ -29,7 +29,7 @@ static bool UDS_ResponseInProgress(void)
       (s_transport->send_status == ISOTP_SEND_STATUS_INPROGRESS);
 }
 
-static void UDS_PollS3(uint32_t now_ms)
+static void UDS_ServerPollS3(uint32_t now_ms)
 {
   if ((s_session != SESSION_DEFAULT) &&
       ((int32_t)(now_ms - s_s3_session_timeout_timer) >= 0))
@@ -123,7 +123,7 @@ static uint8_t UDS_DownloadResultToNrc(download_result_t result)
       return NRC_REQUEST_SEQUENCE_ERROR;
 
     case DOWNLOAD_RESULT_WRONG_BLOCK_SEQUENCE:
-      return NRC_WRONG_BLOCK_SEQUENCE_COUNTER;
+      return NRC_REQUEST_SEQUENCE_ERROR;
 
     case DOWNLOAD_RESULT_REJECTED:
       return NRC_UPLOAD_DOWNLOAD_NOT_ACCEPTED;
@@ -196,7 +196,7 @@ static uint8_t UDS_SecurityAccessResultToNrc(security_access_result_t result)
   }
 }
 
-static void UDS_HandleSessionControl(const uint8_t *request, uint16_t length)
+static void UDS_Handle_0x10_DiagnosticSessionControl(const uint8_t *request, uint16_t length)
 {
     uint8_t session;
     uint8_t rsp[5];
@@ -218,13 +218,10 @@ static void UDS_HandleSessionControl(const uint8_t *request, uint16_t length)
         return;
     }
 
-    if (s_session != session)
-    {
-        SecurityAccess_ClearUnlock();
-    }
     s_session = session;
     if (session != SESSION_DEFAULT)
     {
+      //启动/重置S3超时定时器
       s_s3_session_timeout_timer = s_now_ms + UDS_SERVER_DEFAULT_S3_MS;
     }
     rsp[0] = session;
@@ -239,7 +236,7 @@ static void UDS_HandleSessionControl(const uint8_t *request, uint16_t length)
         s_suppress_positive_response);
 }
 
-static void UDS_HandleTesterPresent(const uint8_t *request, uint16_t length)
+static void UDS_Handle_0x3E_TesterPresent(const uint8_t *request, uint16_t length)
 {
   uint8_t subfunction;
   uint8_t rsp[1];
@@ -265,7 +262,7 @@ static void UDS_HandleTesterPresent(const uint8_t *request, uint16_t length)
       SID_TESTER_PRESENT, rsp, sizeof(rsp), s_suppress_positive_response);
 }
 
-static void UDS_HandleReadDataByIdentifier(
+static void UDS_Handle_0x22_ReadDataByIdentifier(
     const uint8_t *request,
     uint16_t length)
 {
@@ -309,7 +306,7 @@ static void UDS_HandleReadDataByIdentifier(
 
         case UDS_READ_DID_RESULT_BUILD_FAILED:
             UDS_SendNegative(SID_READ_DATA_BY_IDENTIFIER,
-                                 NRC_GENERAL_PROGRAMMING_FAILURE);
+                                 NRC_CONDITIONS_NOT_CORRECT);
             break;
 
         default:
@@ -319,7 +316,7 @@ static void UDS_HandleReadDataByIdentifier(
     }
 }
 
-static void UDS_HandleSecurityAccess(const uint8_t *request, uint16_t length)
+static void UDS_Handle_0x27_SecurityAccess(const uint8_t *request, uint16_t length)
 {
   uint8_t subfunction;
   uint8_t level;
@@ -410,8 +407,7 @@ static void UDS_HandleSecurityAccess(const uint8_t *request, uint16_t length)
                        NRC_SUBFUNCTION_NOT_SUPPORTED);
 }
 
-static bool UDS_SendDownloadResponse(uint8_t target_slot,
-                                     uint32_t resume_offset)
+static bool UDS_SendDownloadResponse(uint8_t target_slot)
 {
   uint8_t rsp[UDS_REQUEST_DOWNLOAD_RESPONSE_LEN - 1U] = {0};
 
@@ -421,20 +417,16 @@ static bool UDS_SendDownloadResponse(uint8_t target_slot,
   rsp[UDS_REQUEST_DOWNLOAD_RESPONSE_MAX_BLOCK_OFFSET] =
       (uint8_t)DOWNLOAD_MAX_BLOCK_LENGTH;
   rsp[UDS_REQUEST_DOWNLOAD_RESPONSE_TARGET_SLOT_OFFSET - 1U] = target_slot;
-  UDS_Msg_WriteBe32(
-      &rsp[UDS_REQUEST_DOWNLOAD_RESPONSE_RESUME_OFFSET - 1U],
-      resume_offset);
   return UDS_SendPositive(SID_REQUEST_DOWNLOAD,
-                                         rsp,
-                                         sizeof(rsp),
-                                         false);
+                                          rsp,
+                                          sizeof(rsp),
+                                          false);
 }
 
-static void UDS_HandleRequestDownload(const uint8_t *request, uint16_t length)
+static void UDS_Handle_0x34_RequestDownload(const uint8_t *request, uint16_t length)
 {
     uint32_t address = 0U;
     uint32_t size = 0U;
-    uint32_t resume_offset = 0U;
     download_result_t result = DOWNLOAD_RESULT_SEQUENCE_ERROR;
     uint8_t target_slot = SLOT_INVALID;
 
@@ -470,8 +462,7 @@ static void UDS_HandleRequestDownload(const uint8_t *request, uint16_t length)
     result = Download_Begin(
         &request[UDS_REQUEST_DOWNLOAD_PAYLOAD_ID_OFFSET],
         size,
-        &target_slot,
-        &resume_offset);
+        &target_slot);
     if (result != DOWNLOAD_RESULT_OK)
     {
         UDS_SendNegative(
@@ -480,16 +471,16 @@ static void UDS_HandleRequestDownload(const uint8_t *request, uint16_t length)
         return;
     }
 
-    (void)UDS_SendDownloadResponse(target_slot, resume_offset);
+    (void)UDS_SendDownloadResponse(target_slot);
 }
 
-static void UDS_HandleRoutineControl(const uint8_t *request, uint16_t length)
+static void UDS_Handle_0x31_RoutineControl(const uint8_t *request, uint16_t length)
 {
   uint8_t subfunction = 0U;
-  uint8_t rsp[UDS_PREPARE_DOWNLOAD_ROUTINE_RESULT_LEN - 1U] = {0};
+  uint8_t rsp[UDS_ERASE_MEMORY_RESULT_LEN - 1U] = {0};
   uint16_t routine_id = 0U;
 
-  if (length < UDS_ROUTINE_CONTROL_REQUEST_LEN)
+  if (length != UDS_ROUTINE_CONTROL_REQUEST_LEN)
   {
     UDS_SendNegative(SID_ROUTINE_CONTROL, NRC_INCORRECT_MESSAGE_LENGTH);
     return;
@@ -497,7 +488,7 @@ static void UDS_HandleRoutineControl(const uint8_t *request, uint16_t length)
 
   subfunction = request[1] & UDS_SUBFUNCTION_VALUE_MASK;
   routine_id = (uint16_t)(((uint16_t)request[2] << 8) | request[3]);
-  if (routine_id != ROUTINE_ID_PREPARE_DOWNLOAD)
+  if (routine_id != ROUTINE_ID_ERASE_MEMORY)
   {
     UDS_SendNegative(SID_ROUTINE_CONTROL, NRC_REQUEST_OUT_OF_RANGE);
     return;
@@ -513,17 +504,8 @@ static void UDS_HandleRoutineControl(const uint8_t *request, uint16_t length)
   rsp[2] = request[3];
   if (subfunction == ROUTINE_CONTROL_START)
   {
-    download_result_t result = DOWNLOAD_RESULT_SEQUENCE_ERROR;
+    download_result_t result = Download_Prepare();
 
-    if (length != UDS_PREPARE_DOWNLOAD_ROUTINE_REQUEST_LEN)
-    {
-      UDS_SendNegative(SID_ROUTINE_CONTROL, NRC_INCORRECT_MESSAGE_LENGTH);
-      return;
-    }
-
-    result = Download_Prepare(
-        &request[UDS_PREPARE_DOWNLOAD_ROUTINE_PAYLOAD_ID_OFFSET],
-        UDS_Msg_ReadBe32(&request[UDS_PREPARE_DOWNLOAD_ROUTINE_SIZE_OFFSET]));
     if (result != DOWNLOAD_RESULT_OK)
     {
       UDS_SendNegative(SID_ROUTINE_CONTROL, UDS_DownloadResultToNrc(result));
@@ -542,26 +524,20 @@ static void UDS_HandleRoutineControl(const uint8_t *request, uint16_t length)
     UDS_SendNegative(SID_ROUTINE_CONTROL, NRC_SUBFUNCTION_NOT_SUPPORTED);
     return;
   }
-  if (length != UDS_ROUTINE_CONTROL_REQUEST_LEN)
-  {
-    UDS_SendNegative(SID_ROUTINE_CONTROL, NRC_INCORRECT_MESSAGE_LENGTH);
-    return;
-  }
 
+  /* ARDEP-aligned results: not completed -> NRC 0x24; completed -> positive
+   * response with a 4-byte BE status record (0x00000000 / 0x00000072). */
   switch (Download_GetPreparationStatus())
   {
-    case DOWNLOAD_PREPARATION_PENDING:
-      rsp[3] = ROUTINE_PREPARE_DOWNLOAD_STATUS_PENDING;
-      break;
-
     case DOWNLOAD_PREPARATION_READY:
-      rsp[3] = ROUTINE_PREPARE_DOWNLOAD_STATUS_READY;
+      /* ROUTINE_ERASE_RESULT_OK record stays zeroed. */
       break;
 
     case DOWNLOAD_PREPARATION_FAILED:
-      UDS_SendNegative(SID_ROUTINE_CONTROL, NRC_GENERAL_PROGRAMMING_FAILURE);
-      return;
+      UDS_Msg_WriteBe32(&rsp[3], ROUTINE_ERASE_RESULT_FAILURE);
+      break;
 
+    case DOWNLOAD_PREPARATION_PENDING:
     case DOWNLOAD_PREPARATION_IDLE:
     default:
       UDS_SendNegative(SID_ROUTINE_CONTROL, NRC_REQUEST_SEQUENCE_ERROR);
@@ -574,7 +550,7 @@ static void UDS_HandleRoutineControl(const uint8_t *request, uint16_t length)
                          s_suppress_positive_response);
 }
 
-static void UDS_HandleTransferData(const uint8_t *request, uint16_t length)
+static void UDS_Handle_0x36_TransferData(const uint8_t *request, uint16_t length)
 {
   download_result_t result = DOWNLOAD_RESULT_SEQUENCE_ERROR;
   uint8_t rsp[1] = {0};
@@ -610,7 +586,7 @@ static void UDS_HandleTransferData(const uint8_t *request, uint16_t length)
       SID_TRANSFER_DATA, rsp, sizeof(rsp), s_suppress_positive_response);
 }
 
-static void UDS_HandleRequestTransferExit(const uint8_t *request, uint16_t length)
+static void UDS_Handle_0x37_RequestTransferExit(const uint8_t *request, uint16_t length)
 {
   download_result_t result = DOWNLOAD_RESULT_SEQUENCE_ERROR;
   (void)request;
@@ -644,7 +620,7 @@ static void UDS_HandleRequestTransferExit(const uint8_t *request, uint16_t lengt
       s_suppress_positive_response);
 }
 
-static void UDS_HandleMcuReset(const uint8_t *request, uint16_t length)
+static void UDS_Handle_0x11_ECUReset(const uint8_t *request, uint16_t length)
 {
     uint8_t rsp[1];
 
@@ -678,7 +654,7 @@ static void UDS_HandleMcuReset(const uint8_t *request, uint16_t length)
     }
 }
 
-void UDS_Init(IsoTpLink *transport)
+void UDS_ServerInit(IsoTpLink *transport)
 {
     s_transport = transport;
     s_session = SESSION_DEFAULT;
@@ -690,14 +666,14 @@ void UDS_Init(IsoTpLink *transport)
     Download_Init();
 }
 
-void UDS_Poll(uint32_t now_ms)
+void UDS_ServerPoll(uint32_t now_ms)
 {
   s_now_ms = now_ms;
-  UDS_PollS3(now_ms);
+  UDS_ServerPollS3(now_ms);
   SecurityAccess_Poll(now_ms);
 }
 
-void UDS_Dispatch(const uint8_t *request, uint16_t length)
+void UDS_ServerDispatch(const uint8_t *request, uint16_t length)
 {
   uint8_t sid;
 
@@ -707,7 +683,7 @@ void UDS_Dispatch(const uint8_t *request, uint16_t length)
   }
 
   sid = request[0];
-  UDS_PollS3(s_now_ms);
+  UDS_ServerPollS3(s_now_ms);
   if (UDS_ResponseInProgress())
   {
     return;
@@ -724,39 +700,39 @@ void UDS_Dispatch(const uint8_t *request, uint16_t length)
   switch (sid)
   {
     case SID_DIAGNOSTIC_SESSION_CONTROL:
-      UDS_HandleSessionControl(request, length);
+      UDS_Handle_0x10_DiagnosticSessionControl(request, length);
       break;
 
     case SID_TESTER_PRESENT:
-      UDS_HandleTesterPresent(request, length);
+      UDS_Handle_0x3E_TesterPresent(request, length);
       break;
 
     case SID_READ_DATA_BY_IDENTIFIER:
-      UDS_HandleReadDataByIdentifier(request, length);
+      UDS_Handle_0x22_ReadDataByIdentifier(request, length);
       break;
 
     case SID_SECURITY_ACCESS:
-      UDS_HandleSecurityAccess(request, length);
+      UDS_Handle_0x27_SecurityAccess(request, length);
       break;
 
     case SID_ROUTINE_CONTROL:
-      UDS_HandleRoutineControl(request, length);
+      UDS_Handle_0x31_RoutineControl(request, length);
       break;
 
     case SID_REQUEST_DOWNLOAD:
-      UDS_HandleRequestDownload(request, length);
+      UDS_Handle_0x34_RequestDownload(request, length);
       break;
 
     case SID_TRANSFER_DATA:
-      UDS_HandleTransferData(request, length);
+      UDS_Handle_0x36_TransferData(request, length);
       break;
 
     case SID_REQUEST_TRANSFER_EXIT:
-      UDS_HandleRequestTransferExit(request, length);
+      UDS_Handle_0x37_RequestTransferExit(request, length);
       break;
 
     case SID_MCU_RESET:
-      UDS_HandleMcuReset(request, length);
+      UDS_Handle_0x11_ECUReset(request, length);
       break;
 
     default:
@@ -767,7 +743,7 @@ void UDS_Dispatch(const uint8_t *request, uint16_t length)
   s_suppress_positive_response = false;
 }
 
-bool UDS_ConsumeAcceptedReset(void)
+bool UDS_ServerConsumeAcceptedReset(void)
 {
     bool accepted = s_reset_accepted;
 
