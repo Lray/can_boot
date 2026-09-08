@@ -30,6 +30,31 @@ typedef enum
     CAN_ERROR_INVALID_STATE = -18
 } CAN_ReturnError_t;
 
+/* Transmit object. Mirrors CANopenNode CANtx_t without the CO_ prefix. */
+typedef struct
+{
+    uint32_t ident;
+    uint8_t DLC;
+    uint8_t data[8];
+    volatile bool bufferFull;
+    volatile bool syncFlag;
+} CANtx_t;
+
+/* CAN module object. Transmit members mirror CANopenNode CANmodule_t without
+ * the CO_ prefix; the receive path remains project-specific. */
+typedef struct
+{
+    void *CANptr;                       /**< Target CAN peripheral handle. */
+    CANtx_t *txArray;                   /**< Configured transmit objects. */
+    uint16_t txSize;                    /**< Number of transmit objects. */
+    volatile uint16_t CANerrorStatus;   /**< CAN_ERR_* status bitfield. */
+    volatile bool CANnormal;            /**< CAN controller is started. */
+    volatile bool bufferInhibitFlag;    /**< Synchronous frame is in HW. */
+    volatile bool firstCANtxMessage;    /**< No frame completed since start. */
+    volatile uint16_t CANtxCount;       /**< Pending software TX objects. */
+    uint32_t errOld;                    /**< Previous PSR error state. */
+} CANmodule_t;
+
 /**
  * Configures the receive filter and starts the CAN controller.
  *
@@ -37,16 +62,29 @@ typedef enum
  * @return true on success; false for an invalid identifier or platform failure.
  * @pre MX_FDCAN1_Init() completed successfully.
  */
-bool CAN_Start(uint32_t receive_id);
+bool CAN_Start(CANmodule_t *CANmodule,
+               CANtx_t txArray[],
+               uint16_t txSize,
+               uint32_t receive_id);
+
+/** Configures one fixed transmit object at the requested priority index. */
+CANtx_t *CANtxBufferInit(CANmodule_t *CANmodule,
+                         uint16_t index,
+                         uint16_t ident,
+                         bool rtr,
+                         uint8_t noOfBytes,
+                         bool syncFlag);
 
 /**
- * Queues one classic CAN frame for transmission.
+ * Sends one configured transmit object. If the hardware FIFO is full, the
+ * object remains pending and is continued by the TX completion interrupt.
  *
- * @param frame Frame with a standard identifier and DLC no greater than 8.
+ * @param CANmodule CAN module instance.
+ * @param buffer Configured transmit object containing DLC and payload.
  * @return CAN_ERROR_NO on success, otherwise one of CAN_ReturnError_t.
  * @pre CAN_Start() completed successfully.
  */
-CAN_ReturnError_t CAN_SendFrame(const can_frame_t *frame);
+CAN_ReturnError_t CANsend(CANmodule_t *CANmodule, CANtx_t *buffer);
 
 /**
  * Atomically removes the oldest queued receive frame.
@@ -104,8 +142,8 @@ void CAN_ClearErrorStatus(uint16_t mask);
 /**
  * Periodically verifies the CAN error state from the controller PSR register.
  *
- * Mirrors CANopenNode CO_CANmodule_process(). Bus-off recovery is performed by
- * the FDCAN controller automatically, so this function only reports the state.
+ * Mirrors CANopenNode CO_CANmodule_process(). For STM32 FDCAN, this function
+ * also clears CCCR.INIT to request recovery while bus-off is active.
  *
  * @return None.
  * @pre CAN_Start() completed successfully.

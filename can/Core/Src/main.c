@@ -162,7 +162,7 @@ static void SendStartupCheckpoint(uint8_t stage)
     frame.data[2] = (uint8_t)CAN_GetRxCount();
     frame.data[3] = (uint8_t)CAN_GetTxCount();
     frame.data[4] = (uint8_t)CAN_GetErrorCount();
-    (void)CAN_SendFrame(&frame);
+    (void)CAN_Transport_Send(&frame);
 }
 
 
@@ -176,7 +176,7 @@ static void SendHeartbeat(void)
     heartbeat.data[1] = (uint8_t)CAN_GetRxCount();
     heartbeat.data[2] = (uint8_t)CAN_GetTxCount();
     heartbeat.data[3] = (uint8_t)CAN_GetErrorCount();
-    (void)CAN_SendFrame(&heartbeat);
+    (void)CAN_Transport_Send(&heartbeat);
 }
 
 static void HeartbeatThreadEntry(void *parameter)
@@ -280,7 +280,7 @@ int main(void)
      * keep feeding from a dedicated worker thread. */
     Watchdog_Feed();
     HAL_GPIO_WritePin(GPIOE, GPIO_PIN_0, GPIO_PIN_SET);
-    CAN_Transport_Init(CAN_SendFrame);
+    CAN_Transport_Init();
     CAN_Transport_SetRxSource(CAN_TakeRxFrame);
     isotp_init_link(&s_uds_isotp,
                     CAN_ID_UDS_RESPONSE,
@@ -292,7 +292,7 @@ int main(void)
     CAN_Transport_SetRxHandler(ReceiveUdsCanFrame);
 
     {
-        bool can_started = CAN_Start(CAN_ID_UDS_REQUEST);
+        bool can_started = CAN_Transport_Start(CAN_ID_UDS_REQUEST);
 
         startup_health_ok = startup_health_ok && can_started;
         if (!can_started)
@@ -421,9 +421,7 @@ int main(void)
 
     while (1)
     {
-        /* The FDCAN controller recovers from bus-off automatically; this
-         * main-loop task only polls the PSR register to keep the classified
-         * error status fresh (mirrors CANopenNode CO_CANmodule_process). */
+        /* Poll FDCAN error state and request bus-off recovery. */
         CAN_module_process();
         (void)rt_thread_mdelay(1);
     }

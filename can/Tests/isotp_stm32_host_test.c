@@ -14,7 +14,7 @@ static IsoTpLink s_link;
 static uint8_t s_send_buffer[32U];
 static uint8_t s_receive_buffer[32U];
 
-static CAN_ReturnError_t TestCanSend(const can_frame_t *frame)
+CAN_ReturnError_t CAN_Transport_Send(const can_frame_t *frame)
 {
     assert(frame != NULL);
     if (s_can_result == CAN_ERROR_NO)
@@ -37,7 +37,6 @@ static void ResetTest(uint32_t now_ms)
     s_now_ms = now_ms;
     s_can_result = CAN_ERROR_NO;
     s_sent_count = 0U;
-    CAN_Transport_Init(TestCanSend);
     isotp_init_link(&s_link,
                     0x7E8U,
                     s_send_buffer,

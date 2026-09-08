@@ -1,6 +1,6 @@
 #include "ulog_can.h"
 
-#include "can_driver.h"
+#include "can_transport.h"
 #include "ulog_can_wire.h"
 
 #include <rtthread.h>
@@ -109,7 +109,7 @@ bool ULogCan_Poll(void)
     }
 
     /* A full Tx FIFO leaves the active fragment untouched for the next poll. */
-    if (CAN_SendFrame(&frame) != CAN_ERROR_NO)
+    if (CAN_Transport_Send(&frame) != CAN_ERROR_NO)
     {
         return false;
     }
