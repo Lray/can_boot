@@ -14,10 +14,10 @@ typedef struct
     uint8_t active_slot;
     mcuboot_image_version_t app_version;
     uint8_t confirm_result;
-} EcuSnapshot_t;
+} McuSnapshot_t;
 
 /**
- * Poll the ECU snapshot DIDs until two consecutive reads agree or the deadline
+ * Poll the MCU snapshot DIDs until two consecutive reads agree or the deadline
  * passes.
  *
  * @param client Ready UDS client.
@@ -33,6 +33,6 @@ int read_snapshot_twice(UdsClient *client, UdsReconnectFn_t reconnect,
                         void *reconnect_ctx, uint64_t deadline,
                         int reconnect_on_failure,
                         uint64_t first_snapshot_deadline,
-                        EcuSnapshot_t *snapshot_out);
+                        McuSnapshot_t *snapshot_out);
 
 #endif

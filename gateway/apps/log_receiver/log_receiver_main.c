@@ -12,7 +12,7 @@
 int main(int argc, char **argv)
 {
     const struct can_filter filter = {
-        .can_id = ECU_ULOG_CAN_ID,
+        .can_id = MCU_ULOG_CAN_ID,
         .can_mask = CAN_SFF_MASK,
     };
     LogReceiver_t receiver;
@@ -38,7 +38,7 @@ int main(int argc, char **argv)
         int recv_result = socketcan_raw_recv(fd, &raw_frame, -1);
 
         if (recv_result > 0) {
-            EcuUlogFrame_t frame = {0};
+            McuUlogFrame_t frame = {0};
             LogRecordView_t record = {0};
             LogFrameDecodeResult_t frame_result =
                 log_frame_decode(&raw_frame, &frame);

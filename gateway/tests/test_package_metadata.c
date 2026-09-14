@@ -9,21 +9,40 @@
 #include "package_metadata.h"
 #include "sha256.h"
 
-static void fixture_path(char *output, size_t output_cap, const char *relative)
+static void write_all(int fd, const uint8_t *data, size_t length)
 {
-    int length = snprintf(output, output_cap, "%s/%s", TEST_SOURCE_DIR, relative);
+    size_t written = 0u;
 
-    assert(length > 0 && (size_t)length < output_cap);
+    while (written < length)
+    {
+        ssize_t rc = write(fd, data + written, length - written);
+
+        assert(rc > 0);
+        written += (size_t)rc;
+    }
 }
 
-static void test_public_fixture_validates_and_derives_image_facts(void)
+static void test_generated_mcuboot_image_validates_and_derives_image_facts(void)
 {
     OtaPackage_t package;
     uint8_t digest[PACKAGE_SHA256_SIZE];
-    char image[1024];
+    uint8_t *image = (uint8_t *)calloc(DEFAULT_SLOT_SIZE, 1u);
+    char temporary[] = "/tmp/package-image-valid-XXXXXX";
+    int output_fd = mkstemp(temporary);
 
-    fixture_path(image, sizeof(image), "upgrade_package_v1.2.46/image.bin");
-    assert(ota_package_load_validate(image, &package) == 0);
+    assert(image != NULL);
+    assert(output_fd >= 0);
+    image[0] = 0x3du;
+    image[1] = 0xb8u;
+    image[2] = 0xf3u;
+    image[3] = 0x96u;
+    image[8] = 32u;
+    image[20] = 1u;
+    image[21] = 2u;
+    image[22] = 46u;
+    write_all(output_fd, image, DEFAULT_SLOT_SIZE);
+    assert(close(output_fd) == 0);
+    assert(ota_package_load_validate(temporary, &package) == 0);
     assert(package.image_size == DEFAULT_SLOT_SIZE);
     assert(package.image_version.iv_major == 1u);
     assert(package.image_version.iv_minor == 2u);
@@ -32,6 +51,8 @@ static void test_public_fixture_validates_and_derives_image_facts(void)
     sha256_compute(package.image, package.image_size, digest);
     assert(memcmp(digest, package.image_sha256, PACKAGE_SHA256_SIZE) == 0);
     ota_package_release(&package);
+    free(image);
+    assert(unlink(temporary) == 0);
 }
 
 static void test_non_mcuboot_image_is_rejected(void)
@@ -58,7 +79,7 @@ static void test_missing_image_is_rejected(void)
 
 int main(void)
 {
-    test_public_fixture_validates_and_derives_image_facts();
+    test_generated_mcuboot_image_validates_and_derives_image_facts();
     test_non_mcuboot_image_is_rejected();
     test_missing_image_is_rejected();
     return 0;

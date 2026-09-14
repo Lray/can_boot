@@ -17,9 +17,10 @@ int main(void)
     assert(P2_STAR_SERVER_DEFAULT_WIRE == 0x01F4u);
     assert(UDS_RESPONSE_PENDING_REPEAT_INTERVAL_MS == 1500u);
     assert(UDS_RESPONSE_PENDING_MAX_COUNT == 8u);
+    assert(MCU_UPDATE_TOTAL_TIMEOUT_MS == 500000u);
+    assert(MCU_UPDATE_REMOTE_WAIT_MS == 540000u);
     assert(SESSION_DEFAULT == 0x01u);
     assert(NRC_BUSY_REPEAT_REQUEST == 0x21u);
-    assert(TESTER_PRESENT_MS == 1000u);
     assert(TRANSFER_BLOCK_PAYLOAD == 256u);
     assert(TRANSFER_MAX_BLOCK_LENGTH == 258u);
     assert(META_CHECKPOINT_INTERVAL == 8192u);
@@ -31,5 +32,6 @@ int main(void)
     assert(UDS_PREPARE_DOWNLOAD_ROUTINE_RESULT_LEN == 5u);
     assert(DOWNLOAD_PREPARATION_TIMEOUT_MS == 30000u);
     assert(DOWNLOAD_PREPARATION_POLL_MS == 250u);
+    assert(UDS_KEEPALIVE_INTERVAL_MS == 1000u);
     return 0;
 }

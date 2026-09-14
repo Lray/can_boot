@@ -6,6 +6,7 @@
 #include "profile.h"
 #include "transport.h"
 #include "uds_client.h"
+#include "util.h"
 
 #define FAKE_RESPONSE_CAPACITY (UDS_RESPONSE_PENDING_MAX_COUNT + 2u)
 
@@ -64,6 +65,18 @@ static UdsClient make_client(FakeTransport_t *fake)
 
     uds_client_init(&client, &ops, fake);
     return client;
+}
+
+static void test_expired_operation_deadline_prevents_transport_use(void)
+{
+    FakeTransport_t fake = {0};
+    UdsClient client = make_client(&fake);
+
+    uds_client_set_operation_deadline(&client, util_monotonic_ms());
+
+    assert(uds_tester_present(&client) == UDS_ERR_TIMEOUT);
+    assert(fake.send_count == 0);
+    assert(fake.recv_count == 0);
 }
 
 static void set_session_response(FakeTransport_t *fake, int index, uint8_t session,
@@ -169,21 +182,21 @@ static void test_tester_present(void)
     assert(uds_tester_present(&client) == 0);
 }
 
-static void test_ecu_reset_restores_default_timing(void)
+static void test_mcu_reset_restores_default_timing(void)
 {
     FakeTransport_t fake = {0};
     UdsClient client = make_client(&fake);
 
     client.p2_server_max_ms = 20u;
     client.p2_star_server_max_ms = 1000u;
-    fake.expected_send[0] = SID_ECU_RESET;
+    fake.expected_send[0] = SID_MCU_RESET;
     fake.expected_send[1] = SUB_HARD_RESET;
     fake.expected_send_len = 2u;
-    fake.responses[0][0] = SID_ECU_RESET_POS;
+    fake.responses[0][0] = SID_MCU_RESET_POS;
     fake.responses[0][1] = SUB_HARD_RESET;
     fake.response_lens[0] = 2u;
 
-    assert(uds_ecu_reset_hard(&client) == 0);
+    assert(uds_mcu_reset_hard(&client) == 0);
     assert(fake.recv_timeouts[0] == 20u);
     assert(client.p2_server_max_ms == P2_SERVER_DEFAULT_MS);
     assert(client.p2_star_server_max_ms == P2_STAR_SERVER_DEFAULT_MS);
@@ -362,7 +375,7 @@ static void test_response_pending_then_timeout_has_no_terminal_nrc(void)
     assert(client.last_nrc == 0u);
 }
 
-static void test_response_pending_limit_accepts_ecu_budget(void)
+static void test_response_pending_limit_accepts_mcu_budget(void)
 {
     FakeTransport_t fake = {0};
     UdsClient client = make_client(&fake);
@@ -521,11 +534,12 @@ assert(fake.recv_count == 1);
 
 int main(void)
 {
+    test_expired_operation_deadline_prevents_transport_use();
     test_enter_programming_session();
     test_session_response_negotiates_timing();
     test_session_response_requires_timing_parameters();
     test_tester_present();
-    test_ecu_reset_restores_default_timing();
+    test_mcu_reset_restores_default_timing();
     test_security_token_requires_response_pending_for_extended_processing();
     test_read_did_copies_payload();
     test_negative_response_is_reported();
@@ -533,7 +547,7 @@ int main(void)
     test_malformed_negative_response_is_rejected();
     test_response_pending_switches_to_p2_star();
     test_response_pending_then_timeout_has_no_terminal_nrc();
-    test_response_pending_limit_accepts_ecu_budget();
+    test_response_pending_limit_accepts_mcu_budget();
     test_response_pending_limit_rejects_extra_pending();
     test_read_did_handles_large_response();
     test_read_did_reports_transport_truncation();

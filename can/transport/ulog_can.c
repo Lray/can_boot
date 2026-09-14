@@ -10,9 +10,9 @@
 
 #define ULOG_CAN_QUEUE_CAPACITY 16U
 #define ULOG_CAN_RECORD_MAX_LOG_SIZE \
-    ((ULOG_LINE_BUF_SIZE < ECU_LOG_CAN_MAX_LOG_SIZE) \
+    ((ULOG_LINE_BUF_SIZE < MCU_LOG_CAN_MAX_LOG_SIZE) \
          ? ULOG_LINE_BUF_SIZE \
-         : ECU_LOG_CAN_MAX_LOG_SIZE)
+         : MCU_LOG_CAN_MAX_LOG_SIZE)
 
 #define ULOG_CAN_QUEUE_STORAGE_WORDS \
     ((ULOG_CAN_QUEUE_CAPACITY * ULOG_CAN_RECORD_MAX_LOG_SIZE + sizeof(rt_ubase_t) - 1U) \
@@ -115,7 +115,7 @@ bool ULogCan_Poll(void)
     }
 
     s_active_fragment++;
-    if ((frame.data[0] & ECU_LOG_CAN_END) != 0U)
+    if ((frame.data[0] & MCU_LOG_CAN_END) != 0U)
     {
         rt_rbb_blk_free(&s_record_queue, s_active_record);
         s_active_record = RT_NULL;

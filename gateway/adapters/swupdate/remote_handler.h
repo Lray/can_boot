@@ -3,9 +3,8 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <zmq.h>
 
-#define REMOTE_HANDLER_DEFAULT_ENDPOINT "ipc:///run/ecu-ota/remote-handler/ecu-v1"
+#define REMOTE_HANDLER_DEFAULT_ENDPOINT "ipc:///run/mcu-update/remote-handler/mcu-v1"
 #define REMOTE_HANDLER_CMD_MAX 96u
 
 typedef struct

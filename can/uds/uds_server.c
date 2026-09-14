@@ -18,18 +18,10 @@ static uint8_t s_session;
 static bool s_suppress_positive_response;
 static bool s_reset_accepted;
 static uint32_t s_now_ms;
-static uint32_t s_s3_deadline_ms;
+static uint32_t s_s3_session_timeout_timer;
 static IsoTpLink *s_transport;
 
 #define UDS_POSITIVE_RESPONSE_BUFFER_SIZE UDS_READ_DID_RESPONSE_MAX_SIZE
-
-typedef enum {
-  UDS_S3_INACTIVE = 0,
-  UDS_S3_RUNNING,
-  UDS_S3_WAITING_FOR_TRANSPORT,
-} uds_s3_state_t;
-
-static uds_s3_state_t s_s3_state;
 
 static bool UDS_ResponseInProgress(void)
 {
@@ -37,37 +29,13 @@ static bool UDS_ResponseInProgress(void)
       (s_transport->send_status == ISOTP_SEND_STATUS_INPROGRESS);
 }
 
-static void UDS_S3_CompleteResponse(uint32_t now_ms)
-{
-  if (s_session == SESSION_DEFAULT)
-  {
-    s_s3_state = UDS_S3_INACTIVE;
-    return;
-  }
-
-  if (UDS_ResponseInProgress())
-  {
-    s_s3_state = UDS_S3_WAITING_FOR_TRANSPORT;
-    return;
-  }
-
-  s_s3_deadline_ms = now_ms + S3_SERVER_DEFAULT;
-  s_s3_state = UDS_S3_RUNNING;
-}
-
 static void UDS_PollS3(uint32_t now_ms)
 {
-  if ((s_s3_state == UDS_S3_WAITING_FOR_TRANSPORT) &&
-      !UDS_ResponseInProgress())
+  if ((s_session != SESSION_DEFAULT) &&
+      ((int32_t)(now_ms - s_s3_session_timeout_timer) >= 0))
   {
-    UDS_S3_CompleteResponse(now_ms);
-  }
-
-  if ((s_s3_state == UDS_S3_RUNNING) &&
-      ((int32_t)(now_ms - s_s3_deadline_ms) >= 0))
-  {
+    GW_LOG_I("diagnostic session timeout");
     s_session = SESSION_DEFAULT;
-    s_s3_state = UDS_S3_INACTIVE;
     SecurityAccess_ClearUnlock();
   }
 }
@@ -255,6 +223,10 @@ static void UDS_HandleSessionControl(const uint8_t *request, uint16_t length)
         SecurityAccess_ClearUnlock();
     }
     s_session = session;
+    if (session != SESSION_DEFAULT)
+    {
+      s_s3_session_timeout_timer = s_now_ms + UDS_SERVER_DEFAULT_S3_MS;
+    }
     rsp[0] = session;
     rsp[1] = (uint8_t)(P2_SERVER_DEFAULT_MS >> 8);
     rsp[2] = (uint8_t)P2_SERVER_DEFAULT_MS;
@@ -287,6 +259,7 @@ static void UDS_HandleTesterPresent(const uint8_t *request, uint16_t length)
     return;
   }
 
+  s_s3_session_timeout_timer = s_now_ms + UDS_SERVER_DEFAULT_S3_MS;
   rsp[0] = subfunction;
   (void)UDS_SendPositive(
       SID_TESTER_PRESENT, rsp, sizeof(rsp), s_suppress_positive_response);
@@ -671,33 +644,33 @@ static void UDS_HandleRequestTransferExit(const uint8_t *request, uint16_t lengt
       s_suppress_positive_response);
 }
 
-static void UDS_HandleEcuReset(const uint8_t *request, uint16_t length)
+static void UDS_HandleMcuReset(const uint8_t *request, uint16_t length)
 {
     uint8_t rsp[1];
 
     if (length != 2U)
     {
-        UDS_SendNegative(SID_ECU_RESET,
+        UDS_SendNegative(SID_MCU_RESET,
                              NRC_INCORRECT_MESSAGE_LENGTH);
         return;
     }
 
     if ((request[1] & UDS_SUBFUNCTION_VALUE_MASK) != SUB_HARD_RESET)
     {
-        UDS_SendNegative(SID_ECU_RESET,
+        UDS_SendNegative(SID_MCU_RESET,
                              NRC_SUBFUNCTION_NOT_SUPPORTED);
         return;
     }
 
     if (!UDS_RequireDownloadSessionAndUnlock(
-            SID_ECU_RESET))
+            SID_MCU_RESET))
     {
         return;
     }
 
     rsp[0] = SUB_HARD_RESET;
     if (UDS_SendPositive(
-            SID_ECU_RESET, rsp, sizeof(rsp), s_suppress_positive_response))
+            SID_MCU_RESET, rsp, sizeof(rsp), s_suppress_positive_response))
     {
         GW_LOG_I("reset requested subfunction=0x%02X",
               (unsigned int)SUB_HARD_RESET);
@@ -711,8 +684,7 @@ void UDS_Init(IsoTpLink *transport)
     s_session = SESSION_DEFAULT;
     s_reset_accepted = false;
     s_now_ms = 0U;
-    s_s3_deadline_ms = 0U;
-    s_s3_state = UDS_S3_INACTIVE;
+    s_s3_session_timeout_timer = 0U;
     s_suppress_positive_response = false;
     SecurityAccess_Init();
     Download_Init();
@@ -736,16 +708,14 @@ void UDS_Dispatch(const uint8_t *request, uint16_t length)
 
   sid = request[0];
   UDS_PollS3(s_now_ms);
-  if ((s_s3_state == UDS_S3_WAITING_FOR_TRANSPORT) &&
-      UDS_ResponseInProgress())
+  if (UDS_ResponseInProgress())
   {
     return;
   }
-  s_s3_state = UDS_S3_INACTIVE;
   s_suppress_positive_response =
       (length >= 2U) &&
        ((sid == SID_DIAGNOSTIC_SESSION_CONTROL) ||
-        (sid == SID_ECU_RESET) ||
+        (sid == SID_MCU_RESET) ||
         (sid == SID_SECURITY_ACCESS) ||
         (sid == SID_ROUTINE_CONTROL) ||
         (sid == SID_TESTER_PRESENT)) &&
@@ -785,16 +755,14 @@ void UDS_Dispatch(const uint8_t *request, uint16_t length)
       UDS_HandleRequestTransferExit(request, length);
       break;
 
-    case SID_ECU_RESET:
-      UDS_HandleEcuReset(request, length);
+    case SID_MCU_RESET:
+      UDS_HandleMcuReset(request, length);
       break;
 
     default:
       UDS_SendNegative(sid, NRC_SERVICE_NOT_SUPPORTED);
       break;
   }
-
-  UDS_S3_CompleteResponse(s_now_ms);
 
   s_suppress_positive_response = false;
 }

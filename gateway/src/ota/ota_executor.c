@@ -14,7 +14,7 @@
 #define OTA_DEFAULT_POST_RESET_DEADLINE_MS 30000u
 
 static OtaState_t classify_post_reset(const OtaPackage_t *package,
-                                      const EcuSnapshot_t *after,
+                                      const McuSnapshot_t *after,
                                       uint8_t target_slot)
 {
     if (after->active_slot == target_slot &&
@@ -86,7 +86,7 @@ OtaState_t ota_executor_run(const OtaExecutorConfig_t *config,
     if (rc != 0)
     {
         /* Diagnostic only: never emit the seed, token, or key material. */
-        fprintf(stderr, "gateway-worker: security-access failed rc=%d nrc=0x%02X\n",
+        fprintf(stderr, "mcu-update-engine: security-access failed rc=%d nrc=0x%02X\n",
                 rc, config->client->last_nrc);
         return OTA_STATE_SESSION_OPEN;
     }
@@ -99,8 +99,8 @@ OtaState_t ota_executor_run(const OtaExecutorConfig_t *config,
         return OTA_STATE_AUTHORIZED;
     }
 
-    /* 0x11 01: ECUReset -> hard reset. */
-    rc = uds_ecu_reset_hard(config->client);
+    /* 0x11 01: MCUReset -> hard reset. */
+    rc = uds_mcu_reset_hard(config->client);
     if (rc != 0 && rc != UDS_ERR_TIMEOUT)
     {
         return OTA_STATE_TRANSFERRED;

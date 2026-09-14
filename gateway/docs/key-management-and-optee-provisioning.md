@@ -5,8 +5,8 @@
 | Domain | Private material location | Public/verifier location | Sole use |
 | --- | --- | --- | --- |
 | MCUboot image signing | Offline release key | STM32 MCUboot trust configuration | Sign the final `image.bin` with MCUboot `imgtool`. |
-| SWU container signing | Offline RSA-PSS release key | `/etc/ecu-ota/trust/swu-release.pem` | Sign `sw-description`; SWUpdate verifies it. |
-| ECU SecurityAccess signing | `ecc_key` in T527 keybox / OP-TEE secure world | ECU P-256 public key and daemon compiled key | Sign the fresh MCU seed challenge. |
+| SWU container signing | Offline RSA-PSS release key | `/etc/mcu-update/trust/swu-release.pem` | Sign `sw-description`; SWUpdate verifies it. |
+| MCU SecurityAccess signing | `ecc_key` in T527 keybox / OP-TEE secure world | MCU P-256 public key and daemon compiled key | Sign the fresh MCU seed challenge. |
 | T527 secure boot and keybox root | Secure boot keys, ROTPK efuse, SSK efuse | Boot ROM / secure boot chain | Authenticate secure firmware and protect keybox storage. |
 
 These keys are unrelated. A key from one row must never be used in another
@@ -22,7 +22,7 @@ seed into a password and never loads the P-256 private key:
 
 ```text
 MCU seed challenge
-  -> gateway OTA worker
+  -> gateway OTA updater
   -> token-signer-daemon SOCK_SEQPACKET request
   -> OP-TEE ECDSA TA: TEE_keybox_load("ecc_key")
   -> raw P-256 signature
@@ -106,12 +106,14 @@ fingerprints only; never log a seed, signature, token, or key material.
 
 ## Release gates
 
-- `can/scripts/make_ecu_mcuboot_bundle.py` is the sole image builder. It calls
+- `can/scripts/make_mcu_mcuboot_bundle.py` is the sole image builder. It calls
   MCUboot `imgtool`, verifies header/TLV/trailer invariants, and creates the
   final full-slot `image.bin`.
-- `gateway/scripts/build_ecu_hawkbit_swu_wsl.sh` is the sole SWU builder. It
+- `gateway/scripts/build_mcu_hawkbit_swu_wsl.sh` is the sole SWU builder. It
   follows official SWUpdate RSA-PSS + CPIO-CRC ordering and validates with
   `swupdate -c`.
-- The Remote Handler's required size and SHA-256 bind this exact final
-  `image.bin`. They supplement the SWU outer signature and MCUboot's final
-  signature/security-counter decision; they never replace either layer.
+- SWUpdate's signed description binds the final `image.bin` digest. The
+  hardened Remote Handler forwards only after complete verification; the
+  receiver and update engine derive the digest again for transport consistency
+  and resume identity. MCUboot retains the final signature/security-counter
+  decision.

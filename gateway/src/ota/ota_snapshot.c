@@ -9,7 +9,7 @@
 #define OTA_SNAPSHOT_MAX_SPAN_MS 500u
 #define OTA_SNAPSHOT_INTERVAL_MS 1000u
 
-static int read_snapshot(UdsClient *client, EcuSnapshot_t *snapshot_out)
+static int read_snapshot(UdsClient *client, McuSnapshot_t *snapshot_out)
 {
     uint8_t value[8] = {0};
     size_t value_len = 0u;
@@ -53,14 +53,14 @@ int read_snapshot_twice(UdsClient *client, UdsReconnectFn_t reconnect,
                         void *reconnect_ctx, uint64_t deadline,
                         int reconnect_on_failure,
                         uint64_t first_snapshot_deadline,
-                        EcuSnapshot_t *snapshot_out)
+                        McuSnapshot_t *snapshot_out)
 {
     uint32_t retry_delay = 250u;
 
     while (util_monotonic_ms() < deadline)
     {
-        EcuSnapshot_t first = {0};
-        EcuSnapshot_t second = {0};
+        McuSnapshot_t first = {0};
+        McuSnapshot_t second = {0};
         int rc = read_snapshot(client, &first);
 
         if (rc == 0 && util_monotonic_ms() <= first_snapshot_deadline)

@@ -40,7 +40,7 @@
 #include <stdbool.h>
 #include <rtthread.h>
 
-#define LOG_TAG "ecu"
+#define LOG_TAG "mcu"
 #define LOG_LVL LOG_LVL_DBG
 #include "gateway_log.h"
 
@@ -394,7 +394,7 @@ int main(void)
         Error_Handler();
     }
 
-    /* Start the lower-priority workers before the OTA worker. */
+    /* Start the lower-priority threads before the UDS update thread. */
     result = rt_thread_startup(&s_log_thread);
     if (result != RT_EOK)
     {

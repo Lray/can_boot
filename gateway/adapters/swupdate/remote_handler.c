@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <zmq.h>
 
 static int prepare_endpoint(const char *endpoint, char *path_out, size_t path_cap,
                             int *lock_fd_out)

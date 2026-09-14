@@ -1,0 +1,14 @@
+[Unit]
+Description=MCU update Wi-Fi link preparation
+Wants=systemd-networkd.service
+After=local-fs.target systemd-networkd.service
+Before=mcu-update-wpa-supplicant.service mcu-update-network-online.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/mcu-update/wifi.conf
+ExecStart=/usr/sbin/ip link set dev ${MCU_WIFI_IFNAME} up
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

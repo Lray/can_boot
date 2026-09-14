@@ -9,33 +9,35 @@ hawkbit.conf -> SWUpdate Suricatta -> HawkBit DDI
                                         |
                                   Remote Handler
                                         v
-                         ecu-ota-orchestrator
-          bind -> receive -> SHA-256 verify -> atomic publish -> worker
-                                                           |
-                    token-signer-daemon <- OP-TEE TA ------+
+                         mcu-updater
+          bind -> receive -> derive SHA-256 -> atomic publish
+                                      -> UDS update -> confirm
+                                               |
+                    token-signer-daemon <- OP-TEE TA
 ```
 
-`ecu-ota-orchestrator` no longer starts Wi-Fi, SWUpdate, or the token signer.
-It has exactly one job: bind the SWUpdate Remote Handler endpoint; accept the
-bounded `image.bin` stream; verify its pre-approved size and SHA-256; publish
-`gateway-input-v1` atomically; and run the existing worker. It does not
+`mcu-updater` no longer starts Wi-Fi, SWUpdate, or the token signer.
+It has exactly one job: bind the SWUpdate Remote Handler endpoint; accept one
+bounded, already verified `image.bin` stream; derive its SHA-256 for local
+audit and resume identity; publish `package-input-v1` atomically; and run the
+single MCU update state machine in the same process. It does not
 implement DDI, HTTP, HawkBit authentication, image signatures, or MCU
-transport.
+boot policy.
 
 | Unit | Ownership |
 | --- | --- |
-| `ecu-ota-wifi.service` | Brings `wlan0` up. |
-| `ecu-ota-wpa-supplicant.service` | Foreground WPA process, permanently restarted by systemd. |
-| `systemd-networkd` + `80-ecu-ota-wlan0.network` | DHCP and route maintenance. |
-| `ecu-ota-network-online.service` | Blocks DDI start until `wlan0` has a route. |
-| `ecu-ota-token-signer.service` | Long-lived OP-TEE signer; it validates the TA key and then drops identity internally. |
-| `ecu-ota-orchestrator.service` | One bound release session; it must not restart with a completed UUID. |
-| `ecu-ota-swupdate.service` | Long-lived official SWUpdate 2019.11 Suricatta client, `Restart=always`. |
+| `mcu-update-wifi.service` | Brings `wlan0` up. |
+| `mcu-update-wpa-supplicant.service` | Foreground WPA process, permanently restarted by systemd. |
+| `systemd-networkd` + `80-mcu-update-wlan0.network` | DHCP and route maintenance. |
+| `mcu-update-network-online.service` | Blocks DDI start until `wlan0` has a route. |
+| `mcu-update-token-signer.service` | Long-lived OP-TEE signer; it validates the TA key and then drops identity internally. |
+| `mcu-updater.service` | Release-independent resident receiver; every Remote Handler transaction gets an internal UUID and ephemeral job directory. |
+| `mcu-update-swupdate.service` | Long-lived official SWUpdate 2019.11 Suricatta client, `Restart=always`. |
 
 ## Fixed HawkBit device identity
 
 Install [`config/hawkbit/hawkbit.conf.example`](../config/hawkbit/hawkbit.conf.example)
-as `/etc/ecu-ota/hawkbit.conf`, owned by `root:root`, mode `0600`:
+as `/etc/mcu-update/hawkbit.conf`, owned by `root:root`, mode `0600`:
 
 ```ini
 HAWKBIT_SERVER_URL=http://<fixed-windows-lan-address>:18080
@@ -57,29 +59,36 @@ used by `scripts/hawkbit_action_wsl.sh`; they are never copied to the board.
 executes the official `/sbin/swupdate -u` Suricatta mode. It is not a second
 DDI or HTTP client.
 
-## Release activation
+## Release-independent updater configuration
 
-Each release has one new UUID and one pre-approved raw-image binding in
-`/etc/ecu-ota/orchestrator.conf`:
+`/etc/mcu-update/mcu-updater.conf` contains device-local settings only:
 
 ```ini
-ECU_OTA_JOB_ID=<new-uuid-v4>
-ECU_OTA_EXPECTED_SIZE=<final-image.bin-byte-count>
-ECU_OTA_EXPECTED_SHA256=<final-image.bin-sha256>
+MCU_UPDATE_WORK_ROOT=/run/mcu-update/jobs
+MCU_UPDATE_CAN_IFNAME=awlink0
+MCU_UPDATE_REMOTE_ENDPOINT=ipc:///run/mcu-update/remote-handler/mcu-v1
 ```
 
-The deployment script derives the size and digest from the supplied final
-`image.bin`, starts a fresh orchestrator, waits for the IPC endpoint, checks
-board-to-HawkBit TCP, and only then starts resident SWUpdate. Do not reuse an
-old UUID after any terminal result.
+Release size, digest, and transaction identifiers are deliberately absent.
+SWUpdate first verifies the signed description and complete artifact, its
+Remote Handler announces the actual image size, and the resident updater
+creates a fresh internal UUID. The receiver recomputes SHA-256 from exactly
+the received bytes; the update engine recomputes it again as the MCU resume
+payload identity. Temporary job data lives below the systemd runtime directory
+and is removed after each transaction.
 
-1. Build the release using `scripts/build_ecu_hawkbit_swu_wsl.sh`. It calls
-   `can/scripts/make_ecu_mcuboot_bundle.py`, which delegates image signing to
+This product deliberately does not enable SWUpdate `hardware-compatibility`.
+The product has one fixed MCU target; MCU metadata checks and MCUboot remain
+the relevant target-side gates.
+
+1. Build the release using `scripts/build_mcu_hawkbit_swu_wsl.sh`. It calls
+   `can/scripts/make_mcu_mcuboot_bundle.py`, which delegates image signing to
    MCUboot `imgtool`; it then follows the official SWUpdate RSA-PSS + CPIO-CRC
    creation method and runs `swupdate -c`.
 
-2. Run `scripts/deploy_ecu_ota_systemd_adb.ps1` with `image.bin`, the SWU
-   public trust PEM, root-only `hawkbit.conf`, and root-only WPA configuration.
+2. Run `scripts/deploy_mcu_update_systemd_adb.ps1` with the SWU public trust
+   PEM, root-only `hawkbit.conf`, and root-only WPA configuration. Deployment
+   is independent of any particular release image.
 
 3. Keep the existing `scripts/hawkbit_action_wsl.sh` as the sole Management
    API uploader. The added `provision` command creates the stable target once
@@ -88,25 +97,37 @@ old UUID after any terminal result.
 
    ```bash
    ./scripts/hawkbit_action_wsl.sh provision \
-       --hawkbit-config /home/lirui/.config/ecu-ota/hawkbit.conf \
-       --target-address <board-wlan-ip> --state ~/.local/state/ecu-ota-hawkbit/t527.env
+       --hawkbit-config /home/lirui/.config/mcu-update/hawkbit.conf \
+       --target-address <board-wlan-ip> --state ~/.local/state/mcu-update-hawkbit/t527.env
    ./scripts/hawkbit_action_wsl.sh assign \
        --artifact /absolute/path/to/release.swu \
-       --state ~/.local/state/ecu-ota-hawkbit/t527.env
+       --state ~/.local/state/mcu-update-hawkbit/t527.env
    ```
 
-4. Use the same script for terminal action status. Success requires HawkBit
-   terminal feedback and the worker's MCU confirmation result.
+4. Run the production HIL entry point after deployment. It assigns the SWU,
+   watches the real systemd services and journal, and requires both HawkBit's
+   terminal result and the updater's post-reboot MCU confirmation:
+
+   ```powershell
+   .\scripts\run_mcu_update_hil_adb.ps1 `
+       -SwuPath <release.swu> `
+       -HawkBitStateFile /home/lirui/.local/state/mcu-update-hawkbit/t527.env
+   ```
 
 ## Deployment guardrails
 
-`deploy_ecu_ota_systemd_adb.ps1` requires PowerShell 7 and refuses to write
+`deploy_mcu_update_systemd_adb.ps1` requires PowerShell 7 and refuses to write
 anything unless PID 1 is `systemd`; systemd-networkd, `nc`, and `/sbin/swupdate`
 exist; inputs hash correctly; the DDI configuration is safe; and the board can
 open TCP to the configured server. The current BusyBox/ADB HIL rootfs is not a
 systemd target, so the script fails before staging on that image. Add systemd,
 systemd-networkd and the listed runtime files to the production Buildroot
 image first.
+
+For an in-place migration, the deployer discovers the superseded update-unit
+prefix from its SWUpdate Remote Handler dependency, disables and removes that
+unit cohort, and moves its configuration, helper directory, and persistent
+runtime root to sibling `.retired` paths before enabling the new services.
 
 Building `-DENABLE_SWUPDATE_BRIDGE=ON` requires the target SDK's `libzmq`
 headers and library. Missing `zmq.h` or `libzmq` is a build blocker, not a

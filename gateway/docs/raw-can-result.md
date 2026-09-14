@@ -12,15 +12,15 @@ Observed interface:
 - Sample point: `0.875`
 - CAN state: `ERROR-ACTIVE`
 
-Observed ECU traffic:
+Observed MCU traffic:
 
-- `candump -tz awlink0` continuously receives ECU heartbeat standard frame `0x700`.
+- `candump -tz awlink0` continuously receives MCU heartbeat standard frame `0x700`.
 - Heartbeat payload starts with `A5`.
 
 Observed request/response:
 
 - Gateway request: `0x7E0#1122334455667788`
-- ECU response: `0x7E8#1122334455667788`
+- MCU response: `0x7E8#1122334455667788`
 
 Observed link counters:
 

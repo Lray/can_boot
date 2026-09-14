@@ -1,0 +1,12 @@
+software = {
+    version = "1.2.0";
+    description = "T527 MCU slot0 image 1.2.0";
+    images: (
+        {
+            filename = "image.bin";
+            type = "remote";
+            data = "mcu-v1";
+            sha256 = "b64bf2d4d492fc292bc6e3ac0c37a5f4e0f43579b09772e541194050fd710a5b";
+        }
+    );
+}

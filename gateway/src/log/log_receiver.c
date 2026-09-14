@@ -44,7 +44,7 @@ bool log_receiver_abort(LogReceiver_t *receiver)
 
 LogReceiverResult_t log_receiver_accept(
     LogReceiver_t *receiver,
-    const EcuUlogFrame_t *frame,
+    const McuUlogFrame_t *frame,
     LogRecordView_t *record_out)
 {
     uint8_t fragment_index = 0u;
@@ -72,10 +72,10 @@ LogReceiverResult_t log_receiver_accept(
         receiver->next_fragment = 0u;
     }
 
-    if (fragment_index >= ECU_ULOG_MAX_FRAGMENTS ||
+    if (fragment_index >= MCU_ULOG_MAX_FRAGMENTS ||
         receiver->active == false ||
         receiver->next_fragment != fragment_index ||
-        frame->payload_length > ECU_ULOG_FRAME_PAYLOAD_SIZE ||
+        frame->payload_length > MCU_ULOG_FRAME_PAYLOAD_SIZE ||
         (receiver->line_length + frame->payload_length) >
             LOG_RECEIVER_MAX_LINE_SIZE) {
         abandoned_record = abandoned_record || receiver->active;

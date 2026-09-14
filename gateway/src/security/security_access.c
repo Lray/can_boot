@@ -6,7 +6,7 @@
 #include "util.h"
 
 /*
- * SID: 0x27 SecurityAccess - unlock the ECU's protected security level within
+ * SID: 0x27 SecurityAccess - unlock the MCU's protected security level within
  * the current diagnostic session through a seed/token exchange.
  *
  * The exchange is 0x27 01 (request programming seed), followed by
@@ -36,7 +36,7 @@ int security_access_unlock(UdsClient *client, const TokenSignerClient_t *signer)
         if (signer_rc != 0)
         {
             /* Numeric provider result only; never log seed or token. */
-            fprintf(stderr, "gateway-worker: token-signer client failed rc=%d\n", signer_rc);
+            fprintf(stderr, "mcu-update-engine: token-signer client failed rc=%d\n", signer_rc);
             rc = SECURITY_ERR_PROVIDER;
         }
     }

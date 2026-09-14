@@ -6,7 +6,7 @@ the secure world for signatures and read the public key. No PEM private key
 file exists on the device.
 
 ```text
-ota-worker (client) --unix socket--> token-signer-daemon (TEEC client)
+mcu-updater (client) --unix socket--> token-signer-daemon (TEEC client)
                                           | TEEC_InvokeCommand
                                           v
                     OP-TEE secure world: ecdsa-p256-sign TA
@@ -42,24 +42,21 @@ instead of signing with an unexpected key.
 
 ## Build
 
-TA (from WSL; syncs into the SDK demo tree and builds with the SDK
-`export-ta_arm32` devkit and arm32 toolchain):
+Build the TA from WSL with the T527 `sun55iw3p1/export-ta_arm32` devkit and
+the SDK arm32 toolchain:
 
 ```bash
-gateway/scripts/build_ta_sdk.sh
-# T527_SDK=/path/to/MYD-LT527 overrides the default /mnt/e/... path
+make -C gateway/optee/ecdsa-p256-sign \
+  TA_DEV_KIT_DIR="$T527_SDK/platform/allwinner/security/optee/plat/arm-plat-sun55iw3p1/export-ta_arm32" \
+  CROSS_COMPILE_TA="$T527_ARM32_TOOLCHAIN/bin/arm-linux-gnueabihf-"
 ```
 
-Output: `<uuid>.ta` in the SDK demo tree `out/ta/`.
+Output: `<uuid>.ta` under `gateway/optee/ecdsa-p256-sign/out/ta/`.
 
-Daemon (cross, aarch64):
-
-```bash
-gateway/scripts/build_target_wsl.sh build-target-tee
-```
-
-Requires the SDK `export-ca` devkit (`libteec.a`, `tee_client_api.h`),
-overridable with `T527_TEE_DEVKIT_DIR`.
+Build the daemon with the AArch64 CMake command in `gateway/README.md`, adding
+`ENABLE_TOKEN_SIGNER_DAEMON=ON` and the matching `sun55iw3p1/export-ca`
+`TEE_INCLUDE_DIR` and `TEE_LIBRARY`. The selected library must be AArch64;
+the similarly named 32-bit platform exports are not link-compatible.
 
 ## Target enablement (board-level, one-time)
 
@@ -132,9 +129,9 @@ Key material (`E:\download\烧号工具dragonsnv2.5.1\ecc-key-material\`):
 ### 3. Verify on the board
 
 ```sh
-/run/media/mmcblk0p6/ecu-ota/bin/token-signer-daemon \
+/run/media/mmcblk0p6/mcu-update/bin/token-signer-daemon \
   --uid 200 --gid 201 --socket-gid 201 --client-uid 0 --client-gid 0 \
-  --idle-timeout 3 --endpoint /run/ecu-token-signer/v1.sock
+  --idle-timeout 3 --endpoint /run/mcu-token-signer/v1.sock
 ```
 
 Success = the daemon survives past startup (public-key check passed) and
@@ -143,8 +140,10 @@ failed" (keybox key missing or public key mismatch).
 
 ## Deployment
 
-`scripts/deploy_ecu_ota_runtime_adb.ps1` publishes the three binaries only.
-The signer key file (`/etc/ecu-ota/trust/can-ota-p256-private.pem`) is
+`scripts/deploy_mcu_update_systemd_adb.ps1` publishes and activates the
+production updater and token signer. The direct diagnostic updater uses
+`scripts/deploy_mcu_update_direct_adb.ps1` and is never enabled as a service.
+The signer key file (`/etc/mcu-update/trust/can-ota-p256-private.pem`) is
 obsolete: the old daemon loaded it, the OP-TEE daemon never touches it.
 Remove it from the device and never redeploy it.
 

@@ -13,13 +13,17 @@
 
 /* ISO-TP flow-control values from the shared can_network.h contract. */
 
-/* Client-side UDS timing and framing (not part of the ECU wire contract). */
+/* Client-side UDS timing and framing (not part of the MCU wire contract). */
 #define P2_STAR_SERVER_WIRE_UNIT_MS 10u
 #define UDS_MAX_TRANSACTION_MS 30000u
 #define UDS_ISOTP_TX_MARGIN_MS 3000u
-#define TESTER_PRESENT_MS 1000u
+#define MCU_UPDATE_TOTAL_TIMEOUT_MS 500000u
+#define MCU_UPDATE_REPLY_MARGIN_MS 40000u
+#define MCU_UPDATE_REMOTE_WAIT_MS \
+    (MCU_UPDATE_TOTAL_TIMEOUT_MS + MCU_UPDATE_REPLY_MARGIN_MS)
 #define DOWNLOAD_PREPARATION_TIMEOUT_MS 30000u
 #define DOWNLOAD_PREPARATION_POLL_MS 250u
+#define UDS_KEEPALIVE_INTERVAL_MS 1000u
 #define UDS_SESSION_CONTROL_RESPONSE_LENGTH 6u
 
 #define TRANSFER_BLOCK_PAYLOAD 256u

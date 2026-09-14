@@ -42,9 +42,7 @@ add_library(gateway-core STATIC
     src/util/util.c
     src/ota/resume_transfer.c
     src/ota/ota_snapshot.c
-    src/ota/ota_executor.c
     src/package/package_metadata.c
-    src/security/security_access.c
     src/uds/uds_client.c
     src/uds/uds_transaction.c
     src/transport/isotp_channel.c
@@ -135,26 +133,50 @@ target_include_directories(gateway-token-signer-client PUBLIC
 target_compile_definitions(gateway-token-signer-client PRIVATE _GNU_SOURCE)
 target_link_libraries(gateway-token-signer-client PRIVATE gateway-core gateway-qcbor)
 
-add_executable(gateway-ota-worker-v1
-    apps/ota_worker/ota_worker.c
-    apps/ota_worker/ota_worker_args.c
+add_library(gateway-mcu-update-engine STATIC
+    src/ota/ota_executor.c
+    src/security/security_access.c
 )
-target_include_directories(gateway-ota-worker-v1 PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/apps/ota_worker
+target_include_directories(gateway-mcu-update-engine PUBLIC
+    ${GATEWAY_INCLUDE_DIRS}
 )
-target_compile_definitions(gateway-ota-worker-v1 PRIVATE _GNU_SOURCE)
-target_link_libraries(gateway-ota-worker-v1 PRIVATE
+target_link_libraries(gateway-mcu-update-engine PUBLIC
     gateway-core
     gateway-token-signer-client
 )
 
-add_executable(gateway-ota-package-probe
-    apps/ota_worker/ota_package_probe.c
+add_library(gateway-mcu-update-app STATIC
+    apps/mcu_updater/update_job.c
 )
-target_include_directories(gateway-ota-package-probe PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/apps/ota_worker
+target_include_directories(gateway-mcu-update-app PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/mcu_updater
+    ${GATEWAY_INCLUDE_DIRS}
 )
-target_link_libraries(gateway-ota-package-probe PRIVATE gateway-core)
+target_compile_definitions(gateway-mcu-update-app PRIVATE _GNU_SOURCE)
+target_link_libraries(gateway-mcu-update-app
+    PUBLIC gateway-mcu-update-engine
+    PRIVATE rt
+)
+
+add_executable(mcu-updater-direct
+    apps/mcu_updater/direct_main.c
+    apps/mcu_updater/direct_args.c
+)
+target_include_directories(mcu-updater-direct PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/mcu_updater
+)
+target_compile_definitions(mcu-updater-direct PRIVATE _GNU_SOURCE)
+target_link_libraries(mcu-updater-direct PRIVATE
+    gateway-mcu-update-app
+)
+
+add_executable(mcu-package-probe
+    apps/mcu_updater/package_probe.c
+)
+target_include_directories(mcu-package-probe PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/mcu_updater
+)
+target_link_libraries(mcu-package-probe PRIVATE gateway-core)
 
 add_executable(gateway-log-receiver
     apps/log_receiver/log_receiver_main.c
@@ -166,7 +188,7 @@ target_link_libraries(gateway-log-receiver PRIVATE
 )
 
 option(ENABLE_SWUPDATE_BRIDGE
-       "Build the SWUpdate remote handler orchestrator" OFF)
+       "Build the SWUpdate remote handler updater" OFF)
 if(ENABLE_SWUPDATE_BRIDGE)
     find_path(ZMQ_INCLUDE_DIR zmq.h)
     find_library(ZMQ_LIBRARY NAMES zmq)
@@ -184,16 +206,19 @@ if(ENABLE_SWUPDATE_BRIDGE)
     target_compile_definitions(gateway-remote-handler PRIVATE _GNU_SOURCE)
     target_link_libraries(gateway-remote-handler PUBLIC ${ZMQ_LIBRARY})
 
-    add_executable(ecu-ota-orchestrator
-        adapters/swupdate/orchestrator.c
-        adapters/swupdate/orchestrator_args.c
+    add_executable(mcu-updater
+        apps/mcu_updater/mcu_updater_main.c
+        apps/mcu_updater/mcu_updater_args.c
     )
-    target_include_directories(ecu-ota-orchestrator SYSTEM PRIVATE ${ZMQ_INCLUDE_DIR})
-    target_compile_definitions(ecu-ota-orchestrator PRIVATE _GNU_SOURCE)
-    target_link_libraries(ecu-ota-orchestrator PRIVATE
+    target_include_directories(mcu-updater PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/apps/mcu_updater
+    )
+    target_include_directories(mcu-updater SYSTEM PRIVATE ${ZMQ_INCLUDE_DIR})
+    target_compile_definitions(mcu-updater PRIVATE _GNU_SOURCE)
+    target_link_libraries(mcu-updater PRIVATE
         gateway-bridge-support
         gateway-remote-handler
-        gateway-core
+        gateway-mcu-update-app
         ${ZMQ_LIBRARY}
     )
 
@@ -253,11 +278,25 @@ add_executable(test-gateway-package-store
 )
 target_link_libraries(test-gateway-package-store PRIVATE gateway-bridge-support)
 add_test(NAME gateway-package-store COMMAND test-gateway-package-store)
+
+add_executable(test-mcu-updater-args
+    tests/test_mcu_updater_args.c
+    apps/mcu_updater/mcu_updater_args.c
+)
+target_include_directories(test-mcu-updater-args PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/mcu_updater
+    ${CMAKE_CURRENT_SOURCE_DIR}/adapters/swupdate
+)
+target_link_libraries(test-mcu-updater-args PRIVATE gateway-core)
+add_test(NAME mcu-updater-args COMMAND test-mcu-updater-args)
+add_test(NAME mcu-updater-runtime-contract
+    COMMAND ${CMAKE_COMMAND}
+        -DGATEWAY_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_mcu_updater_runtime_contract.cmake
+)
+
 add_executable(test-gateway-package-metadata
     tests/test_package_metadata.c
-)
-target_compile_definitions(test-gateway-package-metadata PRIVATE
-    TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
 )
 target_link_libraries(test-gateway-package-metadata PRIVATE gateway-core)
 add_test(NAME gateway-package-metadata COMMAND test-gateway-package-metadata)
@@ -279,13 +318,48 @@ add_executable(test-gateway-security-access
     tests/test_security_access.c
     tests/fake_signer.c
 )
+target_compile_definitions(test-gateway-security-access PRIVATE _GNU_SOURCE)
 target_link_libraries(test-gateway-security-access PRIVATE
-    gateway-core
-    gateway-token-signer-client
+    gateway-mcu-update-engine
     gateway-qcbor
     Threads::Threads
 )
 add_test(NAME gateway-security-access COMMAND test-gateway-security-access)
+
+find_package(OpenSSL REQUIRED)
+add_executable(test-security-token-contract
+    tests/test_security_token_contract.c
+    tests/security_contract_crypto.c
+    apps/token-signer-daemon/token_builder.c
+    ../can/security/security_token.c
+    ../can/security/security_token_cose.c
+    ../third_party/t_cose/src/t_cose_sign1_sign.c
+    ../third_party/t_cose/src/t_cose_sign1_verify.c
+    ../third_party/t_cose/src/t_cose_parameters.c
+    ../third_party/t_cose/src/t_cose_util.c
+)
+target_include_directories(test-security-token-contract PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/token-signer-daemon
+    ${CMAKE_CURRENT_SOURCE_DIR}/../can/security
+    ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/t_cose/inc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/t_cose/src
+    ${GATEWAY_INCLUDE_DIRS}
+)
+target_compile_definitions(test-security-token-contract PRIVATE
+    T_COSE_USE_OPENSSL_CRYPTO
+    T_COSE_DISABLE_ES384
+    T_COSE_DISABLE_ES512
+    T_COSE_DISABLE_EDDSA
+    T_COSE_DISABLE_PS256
+    T_COSE_DISABLE_PS384
+    T_COSE_DISABLE_PS512
+    T_COSE_DISABLE_SHORT_CIRCUIT_SIGN
+)
+target_link_libraries(test-security-token-contract PRIVATE
+    gateway-qcbor
+    OpenSSL::Crypto
+)
+add_test(NAME security-token-contract COMMAND test-security-token-contract)
 
 endif()
 
@@ -304,8 +378,7 @@ add_executable(uds_security_smoke
 )
 target_compile_definitions(uds_security_smoke PRIVATE _GNU_SOURCE)
 target_link_libraries(uds_security_smoke PRIVATE
-    gateway-core
-    gateway-token-signer-client
+    gateway-mcu-update-engine
 )
 
 option(ENABLE_TOKEN_SIGNER_DAEMON
@@ -322,6 +395,7 @@ if(ENABLE_TOKEN_SIGNER_DAEMON)
     add_executable(token-signer-daemon
         apps/token-signer-daemon/token_signer_daemon_main.c
         apps/token-signer-daemon/token_signer_daemon.c
+        apps/token-signer-daemon/token_builder.c
         apps/token-signer-daemon/token_signer_tee.c
         ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/t_cose/src/t_cose_sign1_sign.c
         ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/t_cose/src/t_cose_util.c
@@ -349,6 +423,7 @@ if(ENABLE_TOKEN_SIGNER_DAEMON)
         T_COSE_DISABLE_PS512
         T_COSE_DISABLE_SHORT_CIRCUIT_SIGN
     )
+    set_target_properties(token-signer-daemon PROPERTIES SKIP_BUILD_RPATH TRUE)
     target_link_libraries(token-signer-daemon PRIVATE
         gateway-qcbor
         OpenSSL::Crypto
@@ -361,16 +436,3 @@ add_executable(uds_multiframe_smoke
 )
 target_compile_definitions(uds_multiframe_smoke PRIVATE _GNU_SOURCE)
 target_link_libraries(uds_multiframe_smoke PRIVATE gateway-core)
-
-if(BUILD_TESTING)
-add_test(
-    NAME verify-raw-can-script-contract
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_verify_raw_can_script.sh
-)
-
-add_test(
-    NAME cose-cwt-token-contract
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_cose_cwt_token_contract.sh
-)
-
-endif()

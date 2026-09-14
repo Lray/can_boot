@@ -6,8 +6,8 @@
 
 #include "can_frame.h"
 
-/* Shared ECU log-over-CAN wire format. See shared/ecu_log_can.h. */
-#include "../../shared/ecu_log_can.h"
+/* Shared MCU log-over-CAN wire format. See shared/mcu_log_can.h. */
+#include "../../shared/mcu_log_can.h"
 
 /**
  * Build one raw-CAN fragment of a formatted ULog record.

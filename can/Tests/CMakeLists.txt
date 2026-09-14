@@ -1,4 +1,4 @@
-# Host-based unit tests for ECU modules.
+# Host-based unit tests for MCU modules.
 # Configure independently with: cmake -S Tests -B build-host.
 # Only pure codecs and host-executable protocol state machines belong here.
 # Flash, boot, persistence, security state, and HAL behavior are board/HIL

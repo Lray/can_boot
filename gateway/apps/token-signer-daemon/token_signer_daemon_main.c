@@ -40,7 +40,7 @@ static void print_usage(const char *program)
 {
     fprintf(stderr,
             "usage: %s --uid UID --gid GID --socket-gid GID --client-uid UID --client-gid GID "
-            "[--endpoint /run/ecu-token-signer/v1.sock] [--idle-timeout N]\n",
+            "[--endpoint /run/mcu-token-signer/v1.sock] [--idle-timeout N]\n",
             program);
 }
 

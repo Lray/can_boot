@@ -1,6 +1,6 @@
-# ECU UDS over CAN profile
+# MCU UDS over CAN profile
 
-本目录的 ECU 实现按 ISO 14229-3 的 UDS over CAN 应用边界和 ISO 15765-2
+本目录的 MCU 实现按 ISO 14229-3 的 UDS over CAN 应用边界和 ISO 15765-2
 的 DoCAN 网络层规则实现。它是面向 OTA 引导程序的受限产品 profile，不宣称
 覆盖 ISO 14229 全部服务或 ISO 15765-2 的全部寻址/链路变体。
 
@@ -16,7 +16,7 @@
 - ISO-TP 支持 Single Frame、First/Consecutive Frame 和 Flow Control；接收端对
   超出 512-byte 配置缓冲区的 First Frame 返回 `FC(OVFLW)`。
 - First Frame 接受普通 12-bit 长度；能够识别 32-bit extended length 格式，但所有
-  合法 extended-length PDU 都超过 512-byte ECU 缓冲区，因此以 `FC(OVFLW)` 拒绝。
+  合法 extended-length PDU 都超过 512-byte MCU 缓冲区，因此以 `FC(OVFLW)` 拒绝。
 - 接收端 Flow Control 为 `CTS, BS=8, STmin=2 ms`；Flow Control 的解析和状态
   迁移完全由上游实现维护。上游默认最多接受 1 个连续 `WAIT`，超限后以
   `WFT_OVRN` 结束发送。
@@ -31,8 +31,8 @@
 - `0x10` 正响应公布 `P2ServerMax=50 ms` 和 `P2*ServerMax=5000 ms`；后者按
   ISO 14229 的 10 ms wire unit 编码为 `0x01F4`。
 - `0x34 RequestDownload` 是产品扩展：标准 address/size 字段后追加完整 payload
-  SHA-256；正响应在最大块长后追加 ECU 选定的 `target_slot` 与唯一可恢复的
-  `resume_offset`。地址必须为零，目标槽始终由 ECU 的 inactive slot 推导。
+  SHA-256；正响应在最大块长后追加 MCU 选定的 `target_slot` 与唯一可恢复的
+  `resume_offset`。地址必须为零，目标槽始终由 MCU 的 inactive slot 推导。
 - `0x31 StartRoutine F001` 是下载准备的产品例程：请求携带完整镜像大小和
   payload SHA-256，启动独立的擦除作业；`0x31 RequestRoutineResults F001` 返回
   `pending` 或 `ready`。相同描述符的重复启动只返回当前作业，不重复擦除。擦除每轮

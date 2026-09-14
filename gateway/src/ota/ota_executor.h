@@ -32,12 +32,12 @@ typedef struct
 
 typedef struct
 {
-    EcuSnapshot_t before;
-    EcuSnapshot_t after;
+    McuSnapshot_t before;
+    McuSnapshot_t after;
 } OtaExecutorResult_t;
 
 /**
- * Execute one validated package through the ECU OTA lifecycle.
+ * Execute one validated package through the MCU update lifecycle.
  *
  * @return Terminal state; OTA_STATE_CONFIRMED on success, otherwise the
  *         furthest lifecycle step completed before failure.

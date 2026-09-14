@@ -1,4 +1,4 @@
-# Gateway 开发规范
+# 开发规范
 
 ## 原则
 
@@ -15,3 +15,13 @@
 - 不允许因测试注入及便利影响真实业务代码的设计逻辑，做冗余封装层，降低代码可读性。
 - 如果第3条和第5，10条冲突，优先第5，10条。
 - 当审查功能是否必要的时候，必须遵守第一性原则，不能收到现有代码的影响。
+
+
+"E:\T527\can_boot\tools\image.py"这是MCU镜像制作的唯一工具，来自mcuboot官方
+stm32cubeide for vscode 的相关工具链是MCU编译的唯一工具链。
+网关gateway编译必须使用WSL下的SDK与交叉编译工具链。
+"E:\T527\can_boot\key"是镜像签名私钥与swu包签名私钥唯一来源。
+.swu包制作工具通过swugenerator使用，swugenerator --help是使用帮助。
+
+
+

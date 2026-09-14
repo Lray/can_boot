@@ -29,6 +29,7 @@ static int wait_for_download_preparation(
     uint32_t image_size)
 {
     uint64_t deadline = util_monotonic_ms() + DOWNLOAD_PREPARATION_TIMEOUT_MS;
+    uint64_t last_keepalive_ms = util_monotonic_ms();
     bool ready = false;
     int rc = uds_prepare_download(client, payload_id, image_size);
 
@@ -38,12 +39,20 @@ static int wait_for_download_preparation(
     }
     do
     {
+        uint64_t now_ms = util_monotonic_ms();
+
+        if ((int64_t)(now_ms - last_keepalive_ms) >=
+            UDS_KEEPALIVE_INTERVAL_MS)
+        {
+            (void)uds_tester_present(client);
+            last_keepalive_ms = now_ms;
+        }
         rc = uds_prepare_download_ready(client, &ready);
         if (rc != 0 || ready)
         {
             return rc;
         }
-        if (util_monotonic_ms() >= deadline ||
+        if (now_ms >= deadline ||
             util_sleep_ms(DOWNLOAD_PREPARATION_POLL_MS) != 0)
         {
             return UDS_ERR_TIMEOUT;
@@ -71,7 +80,7 @@ int resume_transfer_execute(UdsClient *client,
     rc = wait_for_download_preparation(client, payload_id, image_size);
     if (rc != 0)
     {
-        fprintf(stderr, "gateway-worker: prepare-download failed rc=%d nrc=0x%02X\n",
+        fprintf(stderr, "mcu-update-engine: prepare-download failed rc=%d nrc=0x%02X\n",
                 rc, client->last_nrc);
         return rc;
     }
@@ -82,19 +91,19 @@ int resume_transfer_execute(UdsClient *client,
                               &response);
     if (rc != 0)
     {
-        fprintf(stderr, "gateway-worker: request-download failed rc=%d nrc=0x%02X\n",
+        fprintf(stderr, "mcu-update-engine: request-download failed rc=%d nrc=0x%02X\n",
                 rc, client->last_nrc);
         return rc;
     }
     if (response.max_block_len != TRANSFER_MAX_BLOCK_LENGTH)
     {
-        fprintf(stderr, "gateway-worker: request-download block length mismatch actual=%u expected=%u\n",
+        fprintf(stderr, "mcu-update-engine: request-download block length mismatch actual=%u expected=%u\n",
                 response.max_block_len, TRANSFER_MAX_BLOCK_LENGTH);
         return RESUME_TRANSFER_ERR_BLOCK_PAYLOAD;
     }
     if (response.target_slot > OTA_SLOT_B)
     {
-        fprintf(stderr, "gateway-worker: request-download invalid target slot=%u\n",
+        fprintf(stderr, "mcu-update-engine: request-download invalid target slot=%u\n",
                 response.target_slot);
         return RESUME_TRANSFER_ERR_IDENTITY_MISMATCH;
     }
@@ -103,7 +112,7 @@ int resume_transfer_execute(UdsClient *client,
                                         &remaining_size);
     if (rc != 0)
     {
-        fprintf(stderr, "gateway-worker: request-download invalid resume offset=%lu rc=%d\n",
+        fprintf(stderr, "mcu-update-engine: request-download invalid resume offset=%lu rc=%d\n",
                 (unsigned long)response.resume_offset, rc);
         return rc;
     }
@@ -124,10 +133,11 @@ int resume_transfer_execute(UdsClient *client,
         rc = uds_transfer_data(client, block_sequence, image + offset, chunk);
         if (rc != 0)
         {
-            fprintf(stderr, "gateway-worker: transfer-data failed seq=%u rc=%d nrc=0x%02X\n",
+            fprintf(stderr, "mcu-update-engine: transfer-data failed seq=%u rc=%d nrc=0x%02X\n",
                     block_sequence, rc, client->last_nrc);
             return rc;
         }
+        (void)uds_tester_present(client);
         offset += chunk;
         block_sequence++;
     }
@@ -135,7 +145,7 @@ int resume_transfer_execute(UdsClient *client,
     rc = uds_request_transfer_exit(client);
     if (rc != 0)
     {
-        fprintf(stderr, "gateway-worker: transfer-exit failed rc=%d nrc=0x%02X\n",
+        fprintf(stderr, "mcu-update-engine: transfer-exit failed rc=%d nrc=0x%02X\n",
                 rc, client->last_nrc);
         return rc;
     }

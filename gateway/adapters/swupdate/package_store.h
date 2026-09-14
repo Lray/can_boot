@@ -15,7 +15,6 @@
 #define PACKAGE_STORE_ERR_SEQUENCE (-802)
 #define PACKAGE_STORE_ERR_PROTOCOL (-803)
 #define PACKAGE_STORE_ERR_SIZE (-804)
-#define PACKAGE_STORE_ERR_HASH (-805)
 #define PACKAGE_STORE_ERR_STORAGE (-806)
 
 #define PACKAGE_STORE_MEMBER_PARTIAL_NAME "image.bin.partial"
@@ -35,16 +34,16 @@ typedef struct
     int member_fd;
     uint64_t expected_size;
     uint64_t received_size;
-    uint8_t expected_sha256[PACKAGE_SHA256_SIZE];
+    uint8_t image_sha256[PACKAGE_SHA256_SIZE];
     Sha256 sha256;
     PackageStoreState_t state;
 } PackageStore_t;
 
-int package_store_init(PackageStore_t *store, int job_dir_fd, uint64_t expected_size,
-                      const uint8_t expected_sha256[PACKAGE_SHA256_SIZE]);
+int package_store_init(PackageStore_t *store, int job_dir_fd);
 int package_store_handle_init(PackageStore_t *store, const char *command, size_t command_len);
 int package_store_handle_data(PackageStore_t *store, const char *command, size_t command_len,
                              const uint8_t *body, size_t body_len);
 void package_store_abort(PackageStore_t *store);
+void package_store_discard(PackageStore_t *store);
 
 #endif

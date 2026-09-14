@@ -1,4 +1,4 @@
-# Third-party libraries for CAN ECU project
+# Third-party libraries for CAN MCU project
 # QCBOR: RFC 7049 CBOR encode/decode
 # t_cose: COSE (CBOR Object Signing and Encryption) sign/verify
 # tinycrypt: ECC, ECDSA, SHA-256 for embedded

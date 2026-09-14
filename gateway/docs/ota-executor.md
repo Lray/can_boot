@@ -4,16 +4,16 @@
 is:
 
 ```text
-SWUpdate -> ecu-ota-bridge -> gateway-ota-worker-v1
+SWUpdate -> mcu-updater -> mcu_update_run_job -> ota_executor
          -> package load/structural validation -> ota_executor -> typed UDS
 ```
 
-The worker loads and validates package metadata, the manifest, image length,
+The updater loads and validates image metadata and length,
 and image SHA once before the executor is called. This is a transfer-boundary
 format/integrity check, not a signature, TLV, rollback, or boot-authenticity
-decision. MCUboot on the ECU owns those final decisions.
+decision. MCUboot on the MCU owns those final decisions.
 
-`ota_executor` then owns, in one sequence: stable ECU observation; extended
+`ota_executor` then owns, in one sequence: stable MCU observation; extended
 and programming session entry; SecurityAccess authorization for entering OTA;
 download-preparation routine; extended `0x34` identity binding/resume decision; `0x36/0x37` transfer; hard
 reset; reconnect; and post-reset classification.
@@ -30,13 +30,13 @@ state for `0x31/0x34/0x36/0x37`. The typed UDS client owns the extension's wire
 encoding. `0x31 F001` owns erase preparation; `0x34/0x36/0x37` do not erase Flash.
 
 The post-reset `DID_APP_VERSION` observation means the version of the image
-currently running on the ECU. Together with active slot and the startup
+currently running on the MCU. Together with active slot and the startup
 confirmation result, it classifies confirmed activation, rollback, failed
 confirmation, or an indeterminate outcome. It is a state observation; it is
 not a Gateway boot verifier.
 
 There are no standalone download, resume, or boot-handoff smoke executables.
 RAW CAN and minimal UDS probes remain for their own transport/diagnostic
-boundaries. OTA acceptance requires the real SWUpdate-to-worker path on a
+boundaries. OTA acceptance requires the real SWUpdate-to-updater path on a
 board/HIL setup, including a valid package, SecurityAccess, reset/reconnect,
-and observed post-reset ECU state.
+and observed post-reset MCU state.

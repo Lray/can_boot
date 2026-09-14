@@ -16,21 +16,9 @@ typedef struct
     int fd;
 } JobDir_t;
 
-static void init_store(PackageStore_t *store, int job_dir_fd, const uint8_t *expected,
-                       size_t expected_len)
+static void init_store(PackageStore_t *store, int job_dir_fd)
 {
-    uint8_t digest[PACKAGE_SHA256_SIZE];
-
-    sha256_compute(expected, expected_len, digest);
-    assert(package_store_init(store, job_dir_fd, expected_len, digest) == 0);
-    memset(digest, 0, sizeof(digest));
-}
-
-static void init_store_for_size(PackageStore_t *store, int job_dir_fd, uint64_t expected_size)
-{
-    static const uint8_t digest[PACKAGE_SHA256_SIZE];
-
-    assert(package_store_init(store, job_dir_fd, expected_size, digest) == 0);
+    assert(package_store_init(store, job_dir_fd) == 0);
 }
 
 static void open_job_dir(JobDir_t *job)
@@ -52,6 +40,15 @@ static void assert_partial_gone(int job_fd)
     struct stat partial_stat;
 
     assert(fstatat(job_fd, PACKAGE_INPUT_PARTIAL_DIRECTORY, &partial_stat,
+                   AT_SYMLINK_NOFOLLOW) != 0);
+    assert(errno == ENOENT);
+}
+
+static void assert_input_gone(int job_fd)
+{
+    struct stat input_stat;
+
+    assert(fstatat(job_fd, PACKAGE_INPUT_DIRECTORY, &input_stat,
                    AT_SYMLINK_NOFOLLOW) != 0);
     assert(errno == ENOENT);
 }
@@ -108,13 +105,19 @@ static void test_publishes_image_atomically(void)
     PackageStore_t store;
 
     open_job_dir(&job);
-    init_store(&store, job.fd, image, sizeof(image));
+    init_store(&store, job.fd);
     assert(package_store_handle_init(&store, "INIT:5", 6u) == 0);
     assert(store.expected_size == 5u && store.received_size == 0u);
     send_data_assert_ack(&store, "DATA", image, 2u);
     send_data_assert_ack(&store, "DATA", image + 2u, 3u);
     assert(store.state == PACKAGE_STORE_COMPLETE);
     assert(store.received_size == 5u);
+    {
+        uint8_t digest[PACKAGE_SHA256_SIZE];
+
+        sha256_compute(image, sizeof(image), digest);
+        assert(memcmp(store.image_sha256, digest, sizeof(digest)) == 0);
+    }
     assert_published_image(job.fd, image, sizeof(image));
     assert_partial_gone(job.fd);
 
@@ -141,7 +144,7 @@ static void test_rejects_malformed_init(void)
         PackageStore_t store;
 
         open_job_dir(&job);
-        init_store(&store, job.fd, (const uint8_t *)"x", 1u);
+        init_store(&store, job.fd);
         assert(package_store_handle_init(&store, command, strlen(command)) ==
                PACKAGE_STORE_ERR_PROTOCOL);
         assert(store.state == PACKAGE_STORE_FAILED);
@@ -157,7 +160,7 @@ static void test_rejects_malformed_init(void)
         PackageStore_t store;
 
         open_job_dir(&job);
-        init_store(&store, job.fd, (const uint8_t *)"x", 1u);
+        init_store(&store, job.fd);
         assert(package_store_handle_init(&store, command, strlen(command)) ==
                PACKAGE_STORE_ERR_SIZE);
         assert(store.state == PACKAGE_STORE_FAILED);
@@ -174,7 +177,7 @@ static void test_rejects_data_overflow_and_cleans(void)
     PackageStore_t store;
 
     open_job_dir(&job);
-    init_store(&store, job.fd, (const uint8_t *)"abcd", 4u);
+    init_store(&store, job.fd);
     assert(package_store_handle_init(&store, "INIT:4", 6u) == 0);
     assert(package_store_handle_data(&store, "DATA", 4u, (const uint8_t *)"abcde", 5u) ==
            PACKAGE_STORE_ERR_SIZE);
@@ -183,31 +186,23 @@ static void test_rejects_data_overflow_and_cleans(void)
     close_job_dir(&job);
 }
 
-static void test_rejects_announced_size_mismatch_and_cleans(void)
+static void test_derives_digest_from_received_image(void)
 {
+    static const uint8_t image[] = "abcdf";
+    uint8_t digest[PACKAGE_SHA256_SIZE];
     JobDir_t job;
     PackageStore_t store;
 
     open_job_dir(&job);
-    init_store(&store, job.fd, (const uint8_t *)"abc", 3u);
-    assert(package_store_handle_init(&store, "INIT:4", 6u) == PACKAGE_STORE_ERR_SIZE);
-    assert(store.state == PACKAGE_STORE_FAILED);
-    assert_partial_gone(job.fd);
-    close_job_dir(&job);
-}
-
-static void test_rejects_hash_mismatch_without_publication(void)
-{
-    JobDir_t job;
-    PackageStore_t store;
-
-    open_job_dir(&job);
-    init_store(&store, job.fd, (const uint8_t *)"abcde", 5u);
+    init_store(&store, job.fd);
     assert(package_store_handle_init(&store, "INIT:5", 6u) == 0);
-    assert(package_store_handle_data(&store, "DATA", 4u, (const uint8_t *)"abcdf", 5u) ==
-           PACKAGE_STORE_ERR_HASH);
+    assert(package_store_handle_data(&store, "DATA", 4u, image, 5u) == 0);
+    assert(store.state == PACKAGE_STORE_COMPLETE);
+    sha256_compute(image, 5u, digest);
+    assert(memcmp(store.image_sha256, digest, sizeof(digest)) == 0);
+    package_store_discard(&store);
+    assert_input_gone(job.fd);
     assert(store.state == PACKAGE_STORE_FAILED);
-    assert_partial_gone(job.fd);
     close_job_dir(&job);
 }
 
@@ -219,7 +214,7 @@ static void test_rejects_bad_data_command_and_cleans(void)
 
     memset(oversized, 0xA5u, sizeof(oversized));
     open_job_dir(&job);
-    init_store_for_size(&store, job.fd, 70000u);
+    init_store(&store, job.fd);
     assert(package_store_handle_init(&store, "INIT:70000", 10u) == 0);
     assert(package_store_handle_data(&store, "DATA", 4u, NULL, 0u) ==
            PACKAGE_STORE_ERR_PROTOCOL);
@@ -238,7 +233,7 @@ static void test_rejects_oversize_body_and_cleans(void)
 
     memset(oversized, 0x5Au, sizeof(oversized));
     open_job_dir(&job);
-    init_store_for_size(&store, job.fd, 70000u);
+    init_store(&store, job.fd);
     assert(package_store_handle_init(&store, "INIT:70000", 10u) == 0);
     assert(package_store_handle_data(&store, "DATA", 4u, (const uint8_t *)oversized,
                                      sizeof(oversized)) == PACKAGE_STORE_ERR_PROTOCOL);
@@ -253,7 +248,7 @@ static void test_enforces_command_sequence(void)
     PackageStore_t store;
 
     open_job_dir(&job);
-    init_store(&store, job.fd, (const uint8_t *)"xy", 2u);
+    init_store(&store, job.fd);
     assert(package_store_handle_data(&store, "DATA", 4u, (const uint8_t *)"x", 1u) ==
            PACKAGE_STORE_ERR_SEQUENCE);
     assert(store.state == PACKAGE_STORE_NEW);
@@ -272,7 +267,7 @@ static void test_abort_discards_incomplete_transfer(void)
     PackageStore_t store;
 
     open_job_dir(&job);
-    init_store(&store, job.fd, (const uint8_t *)"abc", 3u);
+    init_store(&store, job.fd);
     assert(package_store_handle_init(&store, "INIT:3", 6u) == 0);
     send_data_assert_ack(&store, "DATA", "ab", 2u);
     package_store_abort(&store);
@@ -286,8 +281,7 @@ int main(void)
     test_publishes_image_atomically();
     test_rejects_malformed_init();
     test_rejects_data_overflow_and_cleans();
-    test_rejects_announced_size_mismatch_and_cleans();
-    test_rejects_hash_mismatch_without_publication();
+    test_derives_digest_from_received_image();
     test_rejects_bad_data_command_and_cleans();
     test_rejects_oversize_body_and_cleans();
     test_enforces_command_sequence();

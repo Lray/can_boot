@@ -8,7 +8,7 @@
 #include "token_signer_codec.h"
 #include "token_signer_protocol.h"
 
-#define TOKEN_SIGNER_DEFAULT_ENDPOINT "/run/ecu-token-signer/v1.sock"
+#define TOKEN_SIGNER_DEFAULT_ENDPOINT "/run/mcu-token-signer/v1.sock"
 #define TOKEN_SIGNER_DEFAULT_TIMEOUT_MS 1000u
 
 #define TOKEN_SIGNER_ERR_SOCKET_POLICY (-1203)

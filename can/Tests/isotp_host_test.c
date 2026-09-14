@@ -186,7 +186,7 @@ static void TestReceiveFinalConsecutiveFrameWithoutPadding(void)
     }
 }
 
-static void TestReceiveShortNonFinalConsecutiveFrameAborts(void)
+static void TestReceiveShortNonFinalConsecutiveFrameTimesOut(void)
 {
     const uint8_t first_frame[CAN_CLASSIC_MAX_DLC] = {0x10U, 20U};
     const uint8_t short_frame[] = {0x21U, 0xAAU};
@@ -195,7 +195,11 @@ static void TestReceiveShortNonFinalConsecutiveFrameAborts(void)
     isotp_on_can_message(&s_link, first_frame, sizeof(first_frame));
     isotp_on_can_message(&s_link, short_frame, sizeof(short_frame));
     assert(s_received_count == 0U);
+    assert(s_link.receive_status == ISOTP_RECEIVE_STATUS_INPROGRESS);
+    s_time_us = ISO_TP_DEFAULT_RESPONSE_TIMEOUT_US + 1U;
+    isotp_poll(&s_link);
     assert(s_link.receive_status == ISOTP_RECEIVE_STATUS_IDLE);
+    assert(s_link.receive_protocol_result == ISOTP_PROTOCOL_RESULT_TIMEOUT_CR);
 }
 
 static void TestReceiveOverflowSendsOverflowFlowControl(void)
@@ -339,7 +343,7 @@ int main(void)
     TestReceiveMultiFrameUsesProductFlowControl();
     TestReceiveProtocolErrorsRemainObservable();
     TestReceiveFinalConsecutiveFrameWithoutPadding();
-    TestReceiveShortNonFinalConsecutiveFrameAborts();
+    TestReceiveShortNonFinalConsecutiveFrameTimesOut();
     TestReceiveOverflowSendsOverflowFlowControl();
     TestSendSingleFrameUsesConfiguredPadding();
     TestSendEnforcesConfiguredPayloadCapacity();

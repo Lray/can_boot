@@ -10,7 +10,7 @@
 #include "uds_client.h"
 
 #define TEST_IMAGE_SIZE (2u * META_CHECKPOINT_INTERVAL)
-#define MAX_EXPECTED_TRANSACTIONS 80u
+#define MAX_EXPECTED_TRANSACTIONS 140u
 
 typedef struct
 {
@@ -171,6 +171,16 @@ static void expect_transfer_exit(FakeTransport *fake, int index)
     fake->response_len[index] = 1u;
 }
 
+static void expect_tester_present(FakeTransport *fake, int index)
+{
+    fake->expected_send[index][0] = SID_TESTER_PRESENT;
+    fake->expected_send[index][1] = 0x00u;
+    fake->expected_send_len[index] = 2u;
+    fake->responses[index][0] = SID_TESTER_PRESENT_POS;
+    fake->responses[index][1] = 0x00u;
+    fake->response_len[index] = 2u;
+}
+
 static void fill_image(uint8_t *image, size_t length)
 {
     for (size_t index = 0u; index < length; index++)
@@ -201,9 +211,10 @@ static int expect_transfer_range(FakeTransport *fake,
                                          ? TRANSFER_BLOCK_PAYLOAD
                                          : remaining);
         expect_transfer(fake, index, sequence, image + offset, length);
+        expect_tester_present(fake, index + 1);
         offset += length;
         sequence++;
-        index++;
+        index += 2;
     }
     return index;
 }

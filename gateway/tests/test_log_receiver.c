@@ -12,12 +12,12 @@ static struct can_frame make_frame(
 {
     struct can_frame frame = {0};
 
-    assert(payload_length <= ECU_ULOG_FRAME_PAYLOAD_SIZE);
-    frame.can_id = ECU_ULOG_CAN_ID;
-    frame.can_dlc = (uint8_t)(ECU_ULOG_FRAME_HEADER_SIZE + payload_length);
+    assert(payload_length <= MCU_ULOG_FRAME_PAYLOAD_SIZE);
+    frame.can_id = MCU_ULOG_CAN_ID;
+    frame.can_dlc = (uint8_t)(MCU_ULOG_FRAME_HEADER_SIZE + payload_length);
     frame.data[0] = control;
     if (payload_length > 0u) {
-        (void)memcpy(&frame.data[ECU_ULOG_FRAME_HEADER_SIZE],
+        (void)memcpy(&frame.data[MCU_ULOG_FRAME_HEADER_SIZE],
                      payload,
                      payload_length);
     }
@@ -29,7 +29,7 @@ static LogReceiverResult_t accept_raw(
     const struct can_frame *raw_frame,
     LogRecordView_t *record)
 {
-    EcuUlogFrame_t frame = {0};
+    McuUlogFrame_t frame = {0};
 
     assert(log_frame_decode(raw_frame, &frame) == LOG_FRAME_VALID);
     return log_receiver_accept(receiver, &frame, record);
@@ -89,37 +89,37 @@ static void test_accepts_mcu_protocol_maximum_record(void)
 {
     LogReceiver_t receiver = {0};
     LogRecordView_t record = {0};
-    char payload[ECU_ULOG_FRAME_PAYLOAD_SIZE] = {0};
+    char payload[MCU_ULOG_FRAME_PAYLOAD_SIZE] = {0};
 
     log_receiver_init(&receiver);
     for (unsigned int index = 0u;
-         index < ECU_ULOG_MAX_FRAGMENTS;
+         index < MCU_ULOG_MAX_FRAGMENTS;
          index++) {
         uint8_t control = (uint8_t)index;
         struct can_frame frame;
         LogReceiverResult_t result;
 
         if (index == 0u) {
-            control = (uint8_t)(control | ECU_ULOG_CONTROL_START);
+            control = (uint8_t)(control | MCU_ULOG_CONTROL_START);
         }
-        if (index == (ECU_ULOG_MAX_FRAGMENTS - 1u)) {
-            control = (uint8_t)(control | ECU_ULOG_CONTROL_END);
+        if (index == (MCU_ULOG_MAX_FRAGMENTS - 1u)) {
+            control = (uint8_t)(control | MCU_ULOG_CONTROL_END);
         }
         (void)memset(payload, (int)('A' + (index % 26u)), sizeof(payload));
         frame = make_frame(control, payload, sizeof(payload));
         result = accept_raw(&receiver, &frame, &record);
-        if (index + 1u < ECU_ULOG_MAX_FRAGMENTS) {
+        if (index + 1u < MCU_ULOG_MAX_FRAGMENTS) {
             assert(result.status == LOG_RECEIVER_INCOMPLETE);
         } else {
             assert(result.status == LOG_RECEIVER_COMPLETE);
         }
     }
-    assert(record.length == ECU_ULOG_MAX_LOG_SIZE);
+    assert(record.length == MCU_ULOG_MAX_LOG_SIZE);
 }
 
 static void test_frame_decoder_rejects_invalid_length(void)
 {
-    EcuUlogFrame_t decoded = {0};
+    McuUlogFrame_t decoded = {0};
     struct can_frame frame = make_frame(0xC0u, "x", 1u);
 
     frame.can_dlc = 0u;

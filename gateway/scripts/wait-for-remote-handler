@@ -1,7 +1,7 @@
 #!/bin/sh
 set -efu
 
-endpoint=/run/ecu-ota/remote-handler/ecu-v1
+endpoint=/run/mcu-update/remote-handler/mcu-v1
 attempt=0
 
 while [ "$attempt" -lt 30 ]; do
@@ -10,5 +10,5 @@ while [ "$attempt" -lt 30 ]; do
     sleep 1
 done
 
-printf '%s\n' 'ecu-ota: Remote Handler endpoint did not become ready' >&2
+printf '%s\n' 'mcu-update: Remote Handler endpoint did not become ready' >&2
 exit 1

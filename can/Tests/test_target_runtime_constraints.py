@@ -46,7 +46,7 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
             linker_script,
         )
 
-    def test_fdcan_irq_defers_uds_dispatch_to_ota_worker(self):
+    def test_fdcan_irq_defers_uds_dispatch_to_update_thread(self):
         fdcan = FDCAN_C.read_text(encoding="utf-8")
         can_driver = CAN_DRIVER_C.read_text(encoding="utf-8")
         callback_match = re.search(
@@ -60,7 +60,7 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
         self.assertNotIn(
             "CAN_Transport_OnRxFrame",
             callback_body,
-            "FDCAN IRQ must enqueue frames only; UDS/COSE verification belongs in the OTA worker",
+            "FDCAN IRQ must enqueue frames only; UDS/COSE verification belongs in the update thread",
         )
 
         self.assertNotIn(
@@ -140,8 +140,8 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
         self.assertNotIn("CAN_RecordErrorState", can_driver)
         self.assertNotIn("rt_thread_init", can_driver)
         self.assertNotIn("rt_thread_startup", can_driver)
-        self.assertIn("s_ecu_can_error_status", can_driver)
-        self.assertIn("s_ecu_can_err_old", can_driver)
+        self.assertIn("s_mcu_can_error_status", can_driver)
+        self.assertIn("s_mcu_can_err_old", can_driver)
         self.assertIn("CANerrorStatus", can_driver)
         self.assertIn("CAN_module_process", can_driver)
         self.assertIn("FDCAN_PSR_BO", can_driver)

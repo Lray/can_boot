@@ -2,7 +2,7 @@
 
 This workspace follows the architecture constraints in:
 
-- `E:\T527\docs\2026-06-22-dual-thread-ecu-linux-workplan.md`
+- `E:\T527\docs\2026-06-22-dual-thread-mcu-linux-workplan.md`
 
 The gateway code must stay high-cohesion and low-coupling. Do not merge CAN,
 ISO-TP, UDS, package parsing, transfer scheduling, and reporting into one large
@@ -56,7 +56,7 @@ Responsibility:
 
 - `secure_zero`: compiler-safe memory clearing for secrets.
 - `is_lower_hex`, `is_uuid_v4`, `valid_ifname`: input validators shared by
-  package, worker, and bridge code.
+  package, updater, and bridge code.
 
 Rules:
 
@@ -165,7 +165,7 @@ Current owner:
 
 Responsibility:
 
-- request the ECU seed through the UDS client
+- request the MCU seed through the UDS client
 - pass only the seed challenge to the signer client
 - send the resulting token and report the unlock result
 
@@ -176,7 +176,7 @@ Rules:
 - Token signing and private-key handling stay behind the signer client
   boundary in `src/security/token_signer_client.*` (client) and
   `apps/token-signer-daemon/` (TEE-backed signer).
-- This layer owns gateway-side client sequencing, not ECU-side SecurityAccess
+- This layer owns gateway-side client sequencing, not MCU-side SecurityAccess
   state or cryptographic policy.
 
 ## Package Reading
@@ -191,14 +191,14 @@ Current package-boundary owner:
 
 Responsibility:
 
-- package-input member and directory names shared by the worker and bridge
+- package-input member and directory names shared by the updater and bridge
 - descriptor-free package loading: read the signed image, derive size, digest,
   and declared MCUboot header version from `image.bin`; validate size
   boundaries needed before transfer
 
 The gateway does not make the MCUboot security decision. Signature/TLV,
 security-counter, slot selection, boot and rollback decisions remain with the
-ECU's MCUboot handoff. A package-format check may reject malformed input, but
+MCU's MCUboot handoff. A package-format check may reject malformed input, but
 it must not be reported as final authenticity or boot verification.
 
 Rules:
@@ -225,18 +225,18 @@ Its private transfer and observation collaborators are:
 `ota_executor` owns the complete OTA lifecycle and receives its UDS client,
 reconnect callback, and signer directly through `OtaExecutorConfig_t`;
 `ota_snapshot` receives the client, reconnect callback, and deadlines as plain
-parameters. The snapshot module retains stable ECU observation without
+parameters. The snapshot module retains stable MCU observation without
 depending on `ota_executor.h`.
 
 Responsibility:
 
 - `ota_executor` owns the complete OTA lifecycle: session entry, OTA-entry
   authorization, download preparation routine, extended `RequestDownload`, transfer, pre-check,
-  reset, reconnect, and final ECU-state classification.
-- `ota_snapshot` owns stable ECU observation: the injectable monotonic
+  reset, reconnect, and final MCU-state classification.
+- `ota_snapshot` owns stable MCU observation: the injectable monotonic
   clock and sleep, single DID snapshot reads, and the two-reads-equal
   polling policy used before download and after reset.
-- `resume_transfer` starts and polls the ECU download-preparation routine, validates the
+- `resume_transfer` starts and polls the MCU download-preparation routine, validates the
   subsequent `RequestDownload` response, calculates the remaining transfer from its durable offset, and drives the
   already-authorized `0x36/0x37` transfer, enforcing byte count, block
   sequence, and the terminal state of one transfer session.
@@ -281,7 +281,7 @@ Rules:
 - The frame decoder, receiver, and sink do not call UDS, classify OTA failures,
   or publish artifacts.
 - The receiver does not own callbacks, output streams, or statistics.
-- It is not launched, managed, or read by the OTA worker. It is not an OTA
+- It is not launched, managed, or read by the MCU updater. It is not an OTA
   acceptance gate.
 
 ## Applications and Adapters
@@ -289,17 +289,16 @@ Rules:
 Linux process entry points and external-system adapters are kept outside the
 protocol and domain library:
 
-- `apps/ota_worker/`: OTA worker and package probe entry points.
-- `apps/log_receiver/`: manually launched ECU ULog diagnostic receiver.
+- `apps/mcu_updater/`: direct diagnostic updater and package probe entry points.
+- `apps/log_receiver/`: manually launched MCU ULog diagnostic receiver.
 - `apps/token-signer-daemon/`: TEE-backed COSE token signer daemon; owns
   OP-TEE session integration and socket-side peer policy.
-- `adapters/swupdate/`: single-process OTA orchestrator chain
-  `hawkBit -> SWUpdate Remote Handler -> ZeroMQ -> worker`. `orchestrator`
-  owns process composition; `wifi_ctrl` wraps the official `wpa_cli`
-  commands for scanning and saved-network connect; `remote_handler` owns the
-  ZeroMQ REP endpoint and frame protocol; `package_store` owns package
-  receive, release-bound size/SHA-256 verification, and atomic publication of
-  the worker input directory; `fs_util` owns filesystem primitives.
+- `adapters/swupdate/`: production entry path
+  `hawkBit -> SWUpdate Remote Handler -> ZeroMQ -> mcu-updater`.
+  `remote_handler` owns the ZeroMQ REP endpoint and frame protocol;
+  `package_store` owns package receive, the announced-size bound, local
+  SHA-256 derivation, and atomic publication; `mcu_updater_main.c` composes those
+  adapters with the single `mcu_update_run_job()` application service.
 - `src/security/token_signer_*`: token signer client library; `token_signer_codec`
   owns CBOR and protocol framing while the client owns Unix
   socket policy and I/O. `token_signer_protocol.h` is the single source for the
@@ -319,39 +318,46 @@ Current tools:
 - `tools/smoke/raw_can_smoke.c`: RAW CAN send smoke.
 - `tools/smoke/uds_smoke.c`: minimal UDS/DID smoke.
 
-The OTA worker has no package descriptor; the signed MCUboot image is the only
+The MCU updater has no package descriptor; the signed MCUboot image is the only
 package member, and the SecurityAccess token contract (seed-challenge
-claims) lives in `shared/security_token_profile.h`. The worker CLI is isolated
-in `ota_worker_args.c/.h`.
+claims) lives in `shared/security_token_profile.h`. The direct diagnostic CLI is isolated
+in `direct_args.c/.h`.
 
-## OTA Orchestrator
+## Single-MCU Production Updater
 
 Owner:
 
-- `adapters/swupdate/orchestrator.c`
-- `adapters/swupdate/orchestrator_args.h`
-- `adapters/swupdate/orchestrator_args.c`
+- `apps/mcu_updater/mcu_updater_main.c`
+- `apps/mcu_updater/mcu_updater_args.h`
+- `apps/mcu_updater/mcu_updater_args.c`
+
+Application-service owner:
+
+- `src/ota/mcu_update.h`
+- `src/ota/mcu_update.c`
 
 Responsibility:
 
-- one-process composition of the delivery chain: bring up Wi-Fi via the
-  official `wpa_supplicant`/`wpa_cli`, launch the SDK SWUpdate 2019.11
-  Suricatta as a child, serve the official Remote Handler ZeroMQ endpoint,
-  publish the verified package, and launch the OTA worker.
-- The orchestrator must not implement DDI, HTTP, download, signing, or MCU
-  transport; those belong to SWUpdate, the worker, and lower layers.
+- `mcu_updater_main.c` receives one SWUpdate-verified image through the official
+  Remote Handler contract, creates an internal transaction, and atomically
+  publishes it.
+- `mcu_update_run_job()` validates the published input, configures the fixed
+  ISO-TP channel and TEE signer client, and invokes the only OTA lifecycle in
+  `ota_executor`.
+- The production process does not fork or execute a second OTA updater.
+- The updater must not implement DDI, HTTP, SWU parsing/signature checking, or
+  MCUboot boot policy; those belong to SWUpdate and MCUboot.
 
 Rules:
 
-- `wifi_ctrl` speaks only the official `wpa_cli` interface; no raw WPA
-  protocol, no credential handling beyond reading the existing config file.
 - `remote_handler` owns the endpoint lock, socket ownership/mode checks, and
-  the two-frame INIT/DATA/ACK protocol. It contains no job, package, or worker
+  the two-frame INIT/DATA/ACK protocol. It contains no job, package, or updater
   policy.
-- `package_store` owns receive state, the release-bound size/SHA-256 check,
-  staged writes, and atomic rename. It contains no ZMQ or subprocess code;
-  SWUpdate still verifies the signed SWU and MCUboot remains the final ECU
+- `package_store` owns receive state, the announced slot-size bound, local
+  SHA-256 derivation, staged writes, and atomic rename. It contains no ZMQ or MCU protocol code;
+  SWUpdate still verifies the signed SWU and MCUboot remains the final MCU
   authority.
-- The orchestrator is the only caller of worker launch; workers never reach
-  back into orchestrator state.
-- Lower layers must not depend on orchestrator or adapter headers.
+- `mcu-updater-direct` may call the same application service for HIL or
+  production-line diagnostics, but production deployment scripts do not
+  install it.
+- Lower layers must not depend on SWUpdate adapter headers.
