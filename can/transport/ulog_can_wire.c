@@ -47,8 +47,7 @@ bool ULogCanWire_BuildFrame(
         control |= MCU_LOG_CAN_END;
     }
 
-    *frame = (can_tx_t){0};
-    frame->ident = CAN_ID_MCU_ULOG;
+    (void)memset(frame->data, 0, sizeof(frame->data));
     frame->DLC = (uint8_t)(1U + payload_length);
     frame->data[0] = control;
     if (payload_length > 0U)

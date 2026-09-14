@@ -18,6 +18,7 @@ CAN_DRIVER_C = ROOT / "transport" / "can_driver_stm32.c"
 GPIO_C = ROOT / "Core" / "Src" / "gpio.c"
 GPIO_H = ROOT / "Core" / "Inc" / "gpio.h"
 MAIN_C = ROOT / "Core" / "Src" / "main.c"
+CAN_NETWORK_H = ROOT.parent / "shared" / "can_network.h"
 SYSCALLS_C = ROOT / "Core" / "Src" / "syscalls.c"
 USART_C = ROOT / "Core" / "Src" / "usart.c"
 USART_H = ROOT / "Core" / "Inc" / "usart.h"
@@ -73,6 +74,12 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
         self.assertIn("can_rx_buffer_init", main)
         self.assertIn("PollUdsCanFrames", main)
         self.assertIn("isotp_on_can_message", main)
+        self.assertNotIn("s_can_module.CANerrorStatus |=", main)
+        self.assertNotIn("s_can_module.CANtxCount", main)
+        self.assertNotIn("s_can_rx_queue_error_count", main)
+        self.assertNotIn("can_get_rx_count", main)
+        self.assertNotIn("can_get_tx_count", main)
+        self.assertNotIn("can_get_error_count", main)
 
     def test_runtime_separates_ota_and_can_log_workers(self):
         main = MAIN_C.read_text(encoding="utf-8")
@@ -98,8 +105,31 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
         self.assertNotIn("ULogCan_Poll", ota_body)
         self.assertIn("ULogCan_Poll", log_body)
         self.assertIn("SendHeartbeat", heartbeat_body)
-        self.assertIn("rt_thread_mdelay(1000)", heartbeat_body)
+        self.assertIn("rt_thread_mdelay(CAN_HEARTBEAT_PERIOD_MS)", heartbeat_body)
         self.assertNotIn("UDS_Poll", heartbeat_body)
+
+    def test_heartbeat_is_single_byte_node_liveness_state(self):
+        main = MAIN_C.read_text(encoding="utf-8")
+        network = CAN_NETWORK_H.read_text(encoding="utf-8")
+        heartbeat_init = re.search(
+            r"s_heartbeat_tx_buffer\s*=\s*can_tx_buffer_init\("
+            r".*?CAN_ID_HEARTBEAT,\s*false,\s*(?P<dlc>\d+U)",
+            main,
+            re.DOTALL,
+        )
+
+        self.assertIsNotNone(heartbeat_init, "heartbeat TX buffer init not found")
+        self.assertEqual(heartbeat_init.group("dlc"), "1U")
+        self.assertIn("#define CAN_ID_HEARTBEAT 0x700U", network)
+        self.assertIn("#define CAN_HEARTBEAT_STATE_ALIVE 0x05U", network)
+        self.assertIn("#define CAN_HEARTBEAT_PERIOD_MS 1000U", network)
+        self.assertIn("#define CAN_HEARTBEAT_TIMEOUT_MS 3000U", network)
+        self.assertIn("not a complete CANopen NMT Heartbeat protocol", network)
+        self.assertIn(
+            "s_heartbeat_tx_buffer->data[0] = CAN_HEARTBEAT_STATE_ALIVE;",
+            main,
+        )
+        self.assertNotIn("SendStartupCheckpoint", main)
 
     def test_can_error_processing_is_owned_by_main(self):
         main = MAIN_C.read_text(encoding="utf-8")
@@ -132,6 +162,12 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
         self.assertIn("void can_module_process(can_module_t* CANmodule)", can_header)
         self.assertIn("can_return_error_t", can_header)
         self.assertIn("CAN_ERRTX_BUS_OFF", can_header)
+        self.assertNotIn("s_can_rx_count", can_driver)
+        self.assertNotIn("s_can_tx_count", can_driver)
+        self.assertNotIn("s_can_error_count", can_driver)
+        self.assertNotIn("can_get_rx_count", can_header)
+        self.assertNotIn("can_get_tx_count", can_header)
+        self.assertNotIn("can_get_error_count", can_header)
         self.assertNotIn("CAN_Recover", can_header)
         self.assertNotIn("CAN_UpdateErrorStatus", can_header)
         self.assertNotIn("CAN_TakeErrorEvent", can_header)
@@ -207,10 +243,12 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
             confirm,
             "FDCAN must come up before flash-backed D12 confirm so board probes can distinguish CAN bring-up from confirm/download failures",
         )
-        self.assertIn(
-            "SendStartupCheckpoint",
-            main,
-            "target diagnostic build must emit early 0x700 startup checkpoints before UDS/token probes",
+        heartbeat = main.find("    SendHeartbeat();", can_start)
+        self.assertNotEqual(heartbeat, -1, "MCU must emit heartbeat after CAN bring-up")
+        self.assertLess(
+            heartbeat,
+            confirm,
+            "MCU must expose liveness before the flash-backed startup confirm",
         )
 
     def test_uart_debug_init_does_not_block_can_availability_probe(self):

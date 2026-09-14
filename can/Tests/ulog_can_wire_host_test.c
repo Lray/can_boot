@@ -6,19 +6,28 @@
 
 static void test_build_frame_is_stateful_fragment_boundary(void)
 {
-    can_tx_t frame = {0};
+    can_tx_t frame = {
+        .ident = CAN_ID_MCU_ULOG,
+        .bufferFull = false,
+        .syncFlag = true,
+    };
 
     assert(ULogCanWire_BuildFrame("abcdefghijklmn",
                                   14U,
                                   1U,
                                   &frame));
     assert(frame.ident == CAN_ID_MCU_ULOG);
+    assert(!frame.bufferFull);
+    assert(frame.syncFlag);
     assert(frame.DLC == 8U);
     assert(frame.data[0] == (MCU_LOG_CAN_END | 1U));
     assert(memcmp(&frame.data[1], "hijklmn", 7U) == 0);
 
     assert(ULogCanWire_BuildFrame("", 0U, 0U, &frame));
     assert(frame.DLC == 1U);
+    assert(frame.ident == CAN_ID_MCU_ULOG);
+    assert(!frame.bufferFull);
+    assert(frame.syncFlag);
     assert(frame.data[0] == (MCU_LOG_CAN_START | MCU_LOG_CAN_END));
     assert(!ULogCanWire_BuildFrame("", 0U, 1U, &frame));
     assert(!ULogCanWire_BuildFrame("abcdefghijklmn",

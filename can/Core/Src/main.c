@@ -112,7 +112,6 @@ static can_tx_t *s_heartbeat_tx_buffer;
 static can_rx_msg_t s_can_rx_queue[CAN_RX_QUEUE_CAPACITY];
 static volatile uint8_t s_can_rx_head;
 static volatile uint8_t s_can_rx_tail;
-static volatile uint32_t s_can_rx_count;
 
 /* USER CODE END PV */
 
@@ -159,13 +158,11 @@ static void ReceiveUdsCanFrame(void *object, void *message)
     next_head = (uint8_t)((s_can_rx_head + 1U) % CAN_RX_QUEUE_CAPACITY);
     if (next_head == s_can_rx_tail)
     {
-        s_can_module.CANerrorStatus |= CAN_ERRRX_OVERFLOW;
         return;
     }
 
     s_can_rx_queue[s_can_rx_head] = *(can_rx_msg_t *)message;
     s_can_rx_head = next_head;
-    s_can_rx_count++;
 }
 
 static void PollUdsCanFrames(void)
@@ -199,28 +196,6 @@ static void PollReset(void)
     }
 }
 
-static void SendStartupCheckpoint(uint8_t stage)
-{
-    GW_LOG_I("startup checkpoint=0x%02X", (unsigned int)stage);
-
-    if ((s_heartbeat_tx_buffer == NULL) ||
-        s_heartbeat_tx_buffer->bufferFull)
-    {
-        return;
-    }
-
-    memset(s_heartbeat_tx_buffer->data, 0,
-           sizeof(s_heartbeat_tx_buffer->data));
-    s_heartbeat_tx_buffer->data[0] = 0xB0U;
-    s_heartbeat_tx_buffer->data[1] = stage;
-    s_heartbeat_tx_buffer->data[2] = (uint8_t)s_can_rx_count;
-    s_heartbeat_tx_buffer->data[3] = (uint8_t)s_can_module.CANtxCount;
-    s_heartbeat_tx_buffer->data[4] =
-        (uint8_t)s_can_module.CANerrorStatus;
-    (void)can_send(&s_can_module, s_heartbeat_tx_buffer);
-}
-
-
 static void SendHeartbeat(void)
 {
     if ((s_heartbeat_tx_buffer == NULL) ||
@@ -229,13 +204,7 @@ static void SendHeartbeat(void)
         return;
     }
 
-    memset(s_heartbeat_tx_buffer->data, 0,
-           sizeof(s_heartbeat_tx_buffer->data));
-    s_heartbeat_tx_buffer->data[0] = 0xA5U;
-    s_heartbeat_tx_buffer->data[1] = (uint8_t)s_can_rx_count;
-    s_heartbeat_tx_buffer->data[2] = (uint8_t)s_can_module.CANtxCount;
-    s_heartbeat_tx_buffer->data[3] =
-        (uint8_t)s_can_module.CANerrorStatus;
+    s_heartbeat_tx_buffer->data[0] = CAN_HEARTBEAT_STATE_ALIVE;
     (void)can_send(&s_can_module, s_heartbeat_tx_buffer);
 }
 
@@ -246,7 +215,7 @@ static void HeartbeatThreadEntry(void *parameter)
     while (1)
     {
         SendHeartbeat();
-        (void)rt_thread_mdelay(1000);
+        (void)rt_thread_mdelay(CAN_HEARTBEAT_PERIOD_MS);
     }
 }
 
@@ -393,7 +362,7 @@ int main(void)
                 CAN_TX_HEARTBEAT_INDEX,
                 CAN_ID_HEARTBEAT,
                 false,
-                8U,
+                1U,
                 false);
             can_started = (isotp_tx_buffer != NULL) &&
                           (ulog_tx_buffer != NULL) &&
@@ -420,17 +389,15 @@ int main(void)
             Error_Handler();
         }
     }
-    SendStartupCheckpoint(0x01U);
+    SendHeartbeat();
 
     MX_USART1_UART_Init();
     if (reset_reason != 0U)
     {
         printf("reset flags=0x%08lX\r\n", (unsigned long)reset_reason);
     }
-    SendStartupCheckpoint(0x04U);
 
     UDS_Init(&s_uds_isotp);
-    SendStartupCheckpoint(0x02U);
     {
         image_confirm_result_t confirm_result =
             ImageConfirm_RunStartupSelfCheck(startup_health_ok);
@@ -439,11 +406,9 @@ int main(void)
               (unsigned int)confirm_result);
         if (confirm_result == IMAGE_CONFIRM_RESULT_WRITE_FAILED)
         {
-            SendStartupCheckpoint(0xE1U);
             Error_Handler();
         }
     }
-    SendStartupCheckpoint(0x03U);
 
   /* USER CODE END 2 */
 

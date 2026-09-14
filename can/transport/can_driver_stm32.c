@@ -170,7 +170,9 @@ can_module_init(can_module_t* CANmodule, void* CANptr, can_rx_t rxArray[], uint1
     /* Activate the CAN notification interrupts */
 #ifdef STM32_FDCAN_Driver
     if (HAL_FDCAN_ActivateNotification(((can_stm32_t*)CANptr)->CANHandle,
-                                       0 | FDCAN_IT_RX_FIFO0_NEW_MESSAGE | FDCAN_IT_RX_FIFO1_NEW_MESSAGE
+                                       0 | FDCAN_IT_RX_FIFO0_NEW_MESSAGE | FDCAN_IT_RX_FIFO0_FULL
+                                           | FDCAN_IT_RX_FIFO0_MESSAGE_LOST | FDCAN_IT_RX_FIFO1_NEW_MESSAGE
+                                           | FDCAN_IT_RX_FIFO1_FULL | FDCAN_IT_RX_FIFO1_MESSAGE_LOST
                                            | FDCAN_IT_TX_COMPLETE | FDCAN_IT_TX_FIFO_EMPTY | FDCAN_IT_BUS_OFF
                                            | FDCAN_IT_ARB_PROTOCOL_ERROR | FDCAN_IT_DATA_PROTOCOL_ERROR
                                            | FDCAN_IT_ERROR_PASSIVE | FDCAN_IT_ERROR_WARNING,
@@ -315,9 +317,8 @@ prv_send_can_message(can_module_t* CANmodule, can_tx_t* buffer) {
         }
 
         /* Now add message to FIFO. Should not fail */
-        success =
-            HAL_FDCAN_AddMessageToTxFifoQ(((can_stm32_t*)CANmodule->CANptr)->CANHandle, &tx_hdr, buffer->data)
-            == HAL_OK;
+        success = HAL_FDCAN_AddMessageToTxFifoQ(((can_stm32_t*)CANmodule->CANptr)->CANHandle, &tx_hdr, buffer->data)
+                  == HAL_OK;
     }
 #else
     static CAN_TxHeaderTypeDef tx_hdr;
@@ -412,11 +413,6 @@ can_clear_pending_sync_pdos(can_module_t* CANmodule) {
     }
 }
 
-/******************************************************************************/
-/* Get error counters from the module. If necessary, function may use
-    * different way to determine errors. */
-static uint16_t rxErrors = 0, txErrors = 0, overflow = 0;
-
 void
 can_module_process(can_module_t* CANmodule) {
     uint32_t err = 0;
@@ -429,6 +425,7 @@ can_module_process(can_module_t* CANmodule) {
     err = ((FDCAN_HandleTypeDef*)((can_stm32_t*)CANmodule->CANptr)->CANHandle)->Instance->PSR
           & (FDCAN_PSR_BO | FDCAN_PSR_EW | FDCAN_PSR_EP);
 
+    LOCK_GENERIC(primask_process)
     if (CANmodule->errOld != err) {
 
         uint16_t status = CANmodule->CANerrorStatus;
@@ -456,12 +453,14 @@ can_module_process(can_module_t* CANmodule) {
 
         CANmodule->CANerrorStatus = status;
     }
+    UNLOCK_GENERIC(primask_process);
 #else
 
     err = ((CAN_HandleTypeDef*)((can_stm32_t*)CANmodule->CANptr)->CANHandle)->Instance->ESR
           & (CAN_ESR_BOFF | CAN_ESR_EPVF | CAN_ESR_EWGF);
 
     //    uint32_t esrVal = ((CAN_HandleTypeDef*)((can_stm32_t*)CANmodule->CANptr)->CANHandle)->Instance->ESR; Debug purpose
+    LOCK_GENERIC(primask_process)
     if (CANmodule->errOld != err) {
 
         uint16_t status = CANmodule->CANerrorStatus;
@@ -489,6 +488,7 @@ can_module_process(can_module_t* CANmodule) {
 
         CANmodule->CANerrorStatus = status;
     }
+    UNLOCK_GENERIC(primask_process);
 
 #endif
 }
@@ -528,6 +528,7 @@ prv_read_can_received_msg(CAN_HandleTypeDef* hcan, uint32_t fifo, uint32_t fifo_
     static uint8_t rx_data[64];
     /* Read received message from FIFO */
     if (HAL_FDCAN_GetRxMessage(hfdcan, fifo, &rx_hdr, rx_data) != HAL_OK) {
+        CANModule_local->CANerrorStatus |= CAN_ERRRX_OVERFLOW;
         return;
     }
     /* Setup identifier (with RTR) and length */
@@ -572,6 +573,7 @@ prv_read_can_received_msg(CAN_HandleTypeDef* hcan, uint32_t fifo, uint32_t fifo_
     static CAN_RxHeaderTypeDef rx_hdr;
     /* Read received message from FIFO */
     if (HAL_CAN_GetRxMessage(hcan, fifo, &rx_hdr, rcvMsg.data) != HAL_OK) {
+        CANModule_local->CANerrorStatus |= CAN_ERRRX_OVERFLOW;
         return;
     }
     /* Setup identifier (with RTR) and length */
@@ -615,6 +617,10 @@ prv_read_can_received_msg(CAN_HandleTypeDef* hcan, uint32_t fifo, uint32_t fifo_
  */
 void
 HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef* hfdcan, uint32_t RxFifo0ITs) {
+    if (RxFifo0ITs & (FDCAN_IT_RX_FIFO0_FULL | FDCAN_IT_RX_FIFO0_MESSAGE_LOST)) {
+        CANModule_local->CANerrorStatus |= CAN_ERRRX_OVERFLOW;
+        return;
+    }
     if (RxFifo0ITs & FDCAN_IT_RX_FIFO0_NEW_MESSAGE) {
         prv_read_can_received_msg(hfdcan, FDCAN_RX_FIFO0, RxFifo0ITs);
     }
@@ -628,6 +634,10 @@ HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef* hfdcan, uint32_t RxFifo0ITs) {
  */
 void
 HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef* hfdcan, uint32_t RxFifo1ITs) {
+    if (RxFifo1ITs & (FDCAN_IT_RX_FIFO1_FULL | FDCAN_IT_RX_FIFO1_MESSAGE_LOST)) {
+        CANModule_local->CANerrorStatus |= CAN_ERRRX_OVERFLOW;
+        return;
+    }
     if (RxFifo1ITs & FDCAN_IT_RX_FIFO1_NEW_MESSAGE) {
         prv_read_can_received_msg(hfdcan, FDCAN_RX_FIFO1, RxFifo1ITs);
     }

@@ -11,7 +11,16 @@
  */
 
 /* --- Classic CAN 11-bit identifiers --- */
+/*
+ * Project-specific single-MCU heartbeat, designed after CANopen Heartbeat.
+ * This is not a complete CANopen NMT Heartbeat protocol.  The product keeps
+ * the fixed 0x700 identifier because it has no configurable Node-ID.
+ */
 #define CAN_ID_HEARTBEAT 0x700U
+#define CAN_HEARTBEAT_STATE_ALIVE 0x05U
+#define CAN_HEARTBEAT_PERIOD_MS 1000U
+/* Consumers decide online state from elapsed receive time, never counters. */
+#define CAN_HEARTBEAT_TIMEOUT_MS 3000U
 #define CAN_ID_UDS_REQUEST 0x7E0U
 #define CAN_ID_UDS_RESPONSE 0x7E8U
 /* Reserved proprietary broadcast from this MCU to the Gateway only. */

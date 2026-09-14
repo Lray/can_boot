@@ -157,7 +157,8 @@ cd /opt/can-ota-gateway
 | Classic CAN bitrate | 500000 |
 | Gateway request ID | `0x7E0` |
 | MCU response ID | `0x7E8` |
-| MCU heartbeat ID | `0x700`，payload 以 `A5` 开头 |
+| MCU heartbeat | `0x700`，DLC=`1`，`DATA[0]=0x05`（Alive），周期 `1000 ms` |
+| MCU offline 判定 | Gateway 接收端距最后一次有效 heartbeat 超过 `3000 ms`；不使用收发或错误计数 |
 | ISO-TP | `BS=8`，`STmin=2 ms` |
 | UDS timing | 初始默认 `P2=50 ms`、`P2*=5000 ms`；每次 `0x10` 后以 MCU 公布的参数为准（P2* wire unit=10 ms），TesterPresent=1000 ms |
 | TransferData payload | 256 bytes |

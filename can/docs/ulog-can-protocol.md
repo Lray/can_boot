@@ -11,11 +11,14 @@ download code.  CAN transmission is arbitrated in the driver so a log frame
 cannot corrupt an OTA response.
 
 `Core/Src/fdcan.c` remains the CubeMX-generated initialization/MSP boundary.
-Runtime queues, HAL callbacks, counters, and BUS-OFF recovery live in
+Runtime queues, HAL callbacks, and BUS-OFF handling live in
 `transport/can_driver_stm32.c`; `fdcan.h` exposes the single HAL-handle accessor
 while keeping the handle owned by the generated file.
 The periodic `0x700` system heartbeat is emitted by its own RT-Thread task,
-separate from both the update/UDS thread and the ULog CAN transmitter.
+separate from both the update/UDS thread and the ULog CAN transmitter.  It is a
+project-specific, CANopen-inspired liveness frame with DLC `1` and state byte
+`0x05`; it is not a transport-statistics channel or a complete CANopen NMT
+Heartbeat implementation.
 
 Each Classic CAN frame carries the following byte layout:
 

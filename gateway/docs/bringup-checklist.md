@@ -24,7 +24,8 @@ cd /opt/can-ota-gateway
 Required evidence:
 
 - `ip -details link show awlink0` after setup.
-- `candump -tz awlink0` line containing MCU heartbeat standard CAN ID `700`, with payload starting with `A5`.
+- `candump -tz awlink0` line containing MCU heartbeat standard frame `700#05` (DLC `1`).
+- Heartbeats arrive every `1000 ms`; a consumer records the last valid receive time and considers the MCU offline after more than `3000 ms` without one.
 - `raw_can_smoke` or `cansend` evidence that gateway sent standard CAN ID `7E0` with payload `11 22 33 44 55 66 77 88`.
 - `candump -tz awlink0` line containing MCU response standard CAN ID `7E8` with payload `11 22 33 44 55 66 77 88`.
 - `ip -details -statistics link show awlink0` after the smoke test, showing `ERROR-ACTIVE`, `berr-counter tx 0 rx 0`, `bus-errors 0`, `error-warn 0`, `error-pass 0`, `bus-off 0`, and RX/TX errors `0`.

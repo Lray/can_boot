@@ -5,6 +5,10 @@
 
 int main(void)
 {
+    assert(CAN_ID_HEARTBEAT == 0x700u);
+    assert(CAN_HEARTBEAT_STATE_ALIVE == 0x05u);
+    assert(CAN_HEARTBEAT_PERIOD_MS == 1000u);
+    assert(CAN_HEARTBEAT_TIMEOUT_MS == 3000u);
     assert(CAN_ID_UDS_REQUEST == 0x7E0u);
     assert(CAN_ID_UDS_RESPONSE == 0x7E8u);
     assert(CAN_FUNC_ID == 0x7DFu);
