@@ -3,7 +3,6 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "can_frame.h"
 #include "isotp.h"
 #include "shared/can_network.h"
 
@@ -13,7 +12,7 @@
 typedef struct
 {
     uint32_t id;
-    uint8_t data[CAN_CLASSIC_MAX_DLC];
+    uint8_t data[ISO_TP_MAX_CAN_FRAME_SIZE];
     uint8_t length;
 } test_frame_t;
 
@@ -41,7 +40,7 @@ int isotp_user_send_can(const uint32_t arbitration_id,
                         const uint8_t size)
 {
     assert(data != NULL);
-    assert(size <= CAN_CLASSIC_MAX_DLC);
+    assert(size <= ISO_TP_MAX_CAN_FRAME_SIZE);
     if (s_send_result != ISOTP_RET_OK)
     {
         return s_send_result;
@@ -112,8 +111,8 @@ static void TestReceiveSingleFrameWithoutPadding(void)
 
 static void TestReceiveMultiFrameUsesProductFlowControl(void)
 {
-    uint8_t first_frame[CAN_CLASSIC_MAX_DLC] = {0x10U, 20U};
-    uint8_t consecutive_frame[CAN_CLASSIC_MAX_DLC] = {0};
+    uint8_t first_frame[ISO_TP_MAX_CAN_FRAME_SIZE] = {0x10U, 20U};
+    uint8_t consecutive_frame[ISO_TP_MAX_CAN_FRAME_SIZE] = {0};
 
     for (uint8_t index = 0U; index < 6U; index++)
     {
@@ -124,7 +123,7 @@ static void TestReceiveMultiFrameUsesProductFlowControl(void)
     isotp_on_can_message(&s_link, first_frame, sizeof(first_frame));
     assert(s_sent_count == 1U);
     assert(s_sent_frames[0].id == CAN_ID_UDS_RESPONSE);
-    assert(s_sent_frames[0].length == CAN_CLASSIC_MAX_DLC);
+    assert(s_sent_frames[0].length == ISO_TP_MAX_CAN_FRAME_SIZE);
     assert(s_sent_frames[0].data[0] == 0x30U);
     assert(s_sent_frames[0].data[1] == ISOTP_BLOCK_SIZE);
     assert(s_sent_frames[0].data[2] == ISOTP_STMIN_MS);
@@ -157,8 +156,8 @@ static void TestReceiveMultiFrameUsesProductFlowControl(void)
 
 static void TestReceiveProtocolErrorsRemainObservable(void)
 {
-    uint8_t first_frame[CAN_CLASSIC_MAX_DLC] = {0x10U, 9U};
-    uint8_t wrong_sequence[CAN_CLASSIC_MAX_DLC] = {0x22U};
+    uint8_t first_frame[ISO_TP_MAX_CAN_FRAME_SIZE] = {0x10U, 9U};
+    uint8_t wrong_sequence[ISO_TP_MAX_CAN_FRAME_SIZE] = {0x22U};
 
     ResetTest();
     isotp_on_can_message(&s_link, first_frame, sizeof(first_frame));
@@ -170,7 +169,7 @@ static void TestReceiveProtocolErrorsRemainObservable(void)
 
 static void TestReceiveFinalConsecutiveFrameWithoutPadding(void)
 {
-    const uint8_t first_frame[CAN_CLASSIC_MAX_DLC] = {
+    const uint8_t first_frame[ISO_TP_MAX_CAN_FRAME_SIZE] = {
         0x10U, 9U, 0xA0U, 0xA1U, 0xA2U, 0xA3U, 0xA4U, 0xA5U,
     };
     const uint8_t final_frame[] = {0x21U, 0xA6U, 0xA7U, 0xA8U};
@@ -188,7 +187,7 @@ static void TestReceiveFinalConsecutiveFrameWithoutPadding(void)
 
 static void TestReceiveShortNonFinalConsecutiveFrameTimesOut(void)
 {
-    const uint8_t first_frame[CAN_CLASSIC_MAX_DLC] = {0x10U, 20U};
+    const uint8_t first_frame[ISO_TP_MAX_CAN_FRAME_SIZE] = {0x10U, 20U};
     const uint8_t short_frame[] = {0x21U, 0xAAU};
 
     ResetTest();
@@ -204,7 +203,7 @@ static void TestReceiveShortNonFinalConsecutiveFrameTimesOut(void)
 
 static void TestReceiveOverflowSendsOverflowFlowControl(void)
 {
-    const uint8_t first_frame[CAN_CLASSIC_MAX_DLC] = {0x12U, 0x01U};
+    const uint8_t first_frame[ISO_TP_MAX_CAN_FRAME_SIZE] = {0x12U, 0x01U};
 
     ResetTest();
     isotp_on_can_message(&s_link, first_frame, sizeof(first_frame));
@@ -222,10 +221,10 @@ static void TestSendSingleFrameUsesConfiguredPadding(void)
     ResetTest();
     assert(isotp_send(&s_link, payload, sizeof(payload)) == ISOTP_RET_OK);
     assert(s_sent_count == 1U);
-    assert(s_sent_frames[0].length == CAN_CLASSIC_MAX_DLC);
+    assert(s_sent_frames[0].length == ISO_TP_MAX_CAN_FRAME_SIZE);
     assert(s_sent_frames[0].data[0] == sizeof(payload));
     assert(memcmp(&s_sent_frames[0].data[1], payload, sizeof(payload)) == 0);
-    for (uint8_t index = 4U; index < CAN_CLASSIC_MAX_DLC; index++)
+    for (uint8_t index = 4U; index < ISO_TP_MAX_CAN_FRAME_SIZE; index++)
     {
         assert(s_sent_frames[0].data[index] == 0U);
     }
@@ -249,7 +248,7 @@ static void TestSendEnforcesConfiguredPayloadCapacity(void)
 static void TestSendHonorsBlockSizeAndStmin(void)
 {
     uint8_t payload[22U] = {0};
-    uint8_t flow_control[CAN_CLASSIC_MAX_DLC] = {0x30U, 2U, 2U};
+    uint8_t flow_control[ISO_TP_MAX_CAN_FRAME_SIZE] = {0x30U, 2U, 2U};
 
     ResetTest();
     assert(isotp_send(&s_link, payload, sizeof(payload)) == ISOTP_RET_OK);
@@ -283,7 +282,7 @@ static void TestSendHonorsBlockSizeAndStmin(void)
 static void TestProtocolTimeoutsReportStandardReason(void)
 {
     uint8_t payload[8U] = {0};
-    uint8_t first_frame[CAN_CLASSIC_MAX_DLC] = {0x10U, 9U};
+    uint8_t first_frame[ISO_TP_MAX_CAN_FRAME_SIZE] = {0x10U, 9U};
 
     ResetTest();
     assert(isotp_send(&s_link, payload, sizeof(payload)) == ISOTP_RET_OK);
@@ -303,7 +302,7 @@ static void TestProtocolTimeoutsReportStandardReason(void)
 static void TestConsecutiveFrameRetriesNoSpace(void)
 {
     uint8_t payload[8U] = {0};
-    const uint8_t flow_control[CAN_CLASSIC_MAX_DLC] = {0x30U, 0U, 0U};
+    const uint8_t flow_control[ISO_TP_MAX_CAN_FRAME_SIZE] = {0x30U, 0U, 0U};
 
     ResetTest();
     assert(isotp_send(&s_link, payload, sizeof(payload)) == ISOTP_RET_OK);
@@ -325,7 +324,7 @@ static void TestConsecutiveFrameRetriesNoSpace(void)
 static void TestFlowControlWaitLimit(void)
 {
     uint8_t payload[8U] = {0};
-    const uint8_t wait_frame[CAN_CLASSIC_MAX_DLC] = {0x31U, 0U, 0U};
+    const uint8_t wait_frame[ISO_TP_MAX_CAN_FRAME_SIZE] = {0x31U, 0U, 0U};
 
     ResetTest();
     assert(isotp_send(&s_link, payload, sizeof(payload)) == ISOTP_RET_OK);

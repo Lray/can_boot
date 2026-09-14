@@ -65,6 +65,9 @@ add_executable(ulog_can_wire_host_test
     ulog_can_wire_host_test.c
     ${TRANSPORT_DIR}/ulog_can_wire.c
 )
+target_include_directories(ulog_can_wire_host_test BEFORE PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/fakes
+)
 target_include_directories(ulog_can_wire_host_test PRIVATE ${TEST_MODULE_INC_DIRS})
 configure_host_test(ulog_can_wire_host_test)
 
@@ -81,7 +84,6 @@ configure_host_test(isotp_host_test)
 # ---- STM32 ISO-TP port test with fake CMSIS registers ----
 add_executable(isotp_stm32_host_test
     isotp_stm32_host_test.c
-    ${TRANSPORT_DIR}/can_transport.c
     ${TRANSPORT_DIR}/isotp_stm32.c
 )
 target_include_directories(isotp_stm32_host_test BEFORE PRIVATE

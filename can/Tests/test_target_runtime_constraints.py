@@ -46,7 +46,7 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
             linker_script,
         )
 
-    def test_fdcan_irq_defers_uds_dispatch_to_update_thread(self):
+    def test_fdcan_irq_uses_canopen_receive_callback_and_defers_uds(self):
         fdcan = FDCAN_C.read_text(encoding="utf-8")
         can_driver = CAN_DRIVER_C.read_text(encoding="utf-8")
         callback_match = re.search(
@@ -57,38 +57,22 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
         self.assertIsNotNone(callback_match, "FDCAN RX callback not found")
 
         callback_body = callback_match.group("body")
-        self.assertNotIn(
-            "CAN_Transport_OnRxFrame",
-            callback_body,
-            "FDCAN IRQ must enqueue frames only; UDS/COSE verification belongs in the update thread",
-        )
-
-        self.assertNotIn(
-            "can_transport.h",
-            can_driver,
-            "The STM32 CAN driver must not depend on the CAN transport policy",
-        )
-        self.assertNotIn(
-            "CAN_Transport_OnRxFrame",
-            can_driver,
-            "The STM32 CAN driver must expose queued frames instead of calling transport upward",
-        )
+        self.assertIn("prv_read_can_received_msg", callback_body)
+        self.assertNotIn("isotp_", can_driver)
+        self.assertNotIn("UDS_", can_driver)
 
         self.assertIn("MX_FDCAN1_Init", fdcan)
         self.assertIn("HAL_FDCAN_Init", fdcan)
         self.assertIn("FDCAN_Port_GetHandle", fdcan)
         self.assertNotIn('"can_driver.h"', fdcan)
-        self.assertNotIn("CAN_Start(", fdcan)
-        self.assertNotIn("CAN_SendFrame(", fdcan)
-        self.assertNotIn("CAN_TakeRxFrame(", fdcan)
         self.assertNotIn("HAL_FDCAN_RxFifo0Callback", fdcan)
         self.assertNotIn("rt_mutex", fdcan)
 
         main = MAIN_C.read_text(encoding="utf-8")
         self.assertIn("static void OtaThreadEntry", main)
-        self.assertIn("CAN_Transport_SetRxSource", main)
-        self.assertIn("CAN_Transport_Poll", main)
-        self.assertNotIn("CAN_Transport_OnRxFrame", main)
+        self.assertIn("can_rx_buffer_init", main)
+        self.assertIn("PollUdsCanFrames", main)
+        self.assertIn("isotp_on_can_message", main)
 
     def test_runtime_separates_ota_and_can_log_workers(self):
         main = MAIN_C.read_text(encoding="utf-8")
@@ -109,7 +93,7 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
         log_body = main[log_start:]
         heartbeat_body = main[heartbeat_start:ota_start]
         self.assertIn("UDS_Poll", ota_body)
-        self.assertIn("CAN_Transport_Poll", ota_body)
+        self.assertIn("PollUdsCanFrames", ota_body)
         self.assertNotIn("CAN_ID_HEARTBEAT", ota_body)
         self.assertNotIn("ULogCan_Poll", ota_body)
         self.assertIn("ULogCan_Poll", log_body)
@@ -126,7 +110,7 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
 
         # Bus-off is left to FDCAN hardware auto-recovery; the main loop only
         # polls the PSR register and keeps the classified error status fresh.
-        self.assertIn("CAN_module_process()", main)
+        self.assertIn("can_module_process(&s_can_module)", main)
         self.assertIn("rt_thread_mdelay(1)", main)
         self.assertNotIn("g_can_recovery_sem", main)
         self.assertNotIn("rt_sem_take", main)
@@ -140,17 +124,14 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
         self.assertNotIn("CAN_RecordErrorState", can_driver)
         self.assertNotIn("rt_thread_init", can_driver)
         self.assertNotIn("rt_thread_startup", can_driver)
-        self.assertIn("s_mcu_can_error_status", can_driver)
-        self.assertIn("s_mcu_can_err_old", can_driver)
         self.assertIn("CANerrorStatus", can_driver)
-        self.assertIn("CAN_module_process", can_driver)
+        self.assertIn("can_module_process", can_driver)
         self.assertIn("FDCAN_PSR_BO", can_driver)
         self.assertIn("CAN_ERRTX_BUS_OFF", can_driver)
 
-        self.assertIn("void CAN_module_process(void)", can_header)
-        self.assertIn("CAN_ReturnError_t", can_header)
+        self.assertIn("void can_module_process(can_module_t* CANmodule)", can_header)
+        self.assertIn("can_return_error_t", can_header)
         self.assertIn("CAN_ERRTX_BUS_OFF", can_header)
-        self.assertIn("CAN_ClearErrorStatus", can_header)
         self.assertNotIn("CAN_Recover", can_header)
         self.assertNotIn("CAN_UpdateErrorStatus", can_header)
         self.assertNotIn("CAN_TakeErrorEvent", can_header)
@@ -211,7 +192,7 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
     def test_can_starts_before_flash_backed_startup_confirm(self):
         main = MAIN_C.read_text(encoding="utf-8")
 
-        can_start = main.find("CAN_Start(")
+        can_start = main.find("can_set_normal_mode(")
         confirm = main.find("ImageConfirm_RunStartupSelfCheck(startup_health_ok)")
         self.assertNotEqual(can_start, -1, "main must start FDCAN")
         self.assertNotEqual(confirm, -1, "main must run D12 startup confirm")
@@ -235,7 +216,7 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
     def test_uart_debug_init_does_not_block_can_availability_probe(self):
         main = MAIN_C.read_text(encoding="utf-8")
 
-        can_start = main.find("CAN_Start(")
+        can_start = main.find("can_set_normal_mode(")
         uart_init = main.find("MX_USART1_UART_Init()")
         self.assertNotEqual(can_start, -1, "main must start FDCAN")
         self.assertNotEqual(uart_init, -1, "debug UART init must remain explicit")

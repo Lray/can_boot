@@ -27,10 +27,10 @@
 /* USER CODE BEGIN Includes */
 #include "can_driver.h"
 #include "shared/can_network.h"
-#include "can_transport.h"
 #include "download.h"
 #include "image_confirm.h"
 #include "isotp.h"
+#include "isotp_stm32.h"
 #include "security_access_entropy.h"
 #include "uds_server.h"
 #include "ulog_can.h"
@@ -38,6 +38,7 @@
 
 #include <stdio.h>
 #include <stdbool.h>
+#include <string.h>
 #include <rtthread.h>
 
 #define LOG_TAG "mcu"
@@ -69,6 +70,13 @@
 #define WATCHDOG_FEED_INTERVAL_MS 500U
 #define THREAD_TIMESLICE      20U
 #define UDS_ISOTP_BUFFER_SIZE 512U
+#define CAN_BIT_RATE          500U
+#define CAN_RX_BUFFER_COUNT   1U
+#define CAN_RX_QUEUE_CAPACITY 32U
+#define CAN_TX_BUFFER_COUNT   3U
+#define CAN_TX_UDS_INDEX      0U
+#define CAN_TX_ULOG_INDEX     1U
+#define CAN_TX_HEARTBEAT_INDEX 2U
 
 /* USER CODE END PD */
 
@@ -96,6 +104,15 @@ static uint32_t s_reset_due_tick;
 static IsoTpLink s_uds_isotp;
 static uint8_t s_isotp_send_buffer[UDS_ISOTP_BUFFER_SIZE];
 static uint8_t s_isotp_receive_buffer[UDS_ISOTP_BUFFER_SIZE];
+static can_module_t s_can_module;
+static can_stm32_t s_can_stm32;
+static can_rx_t s_can_rx_buffers[CAN_RX_BUFFER_COUNT];
+static can_tx_t s_can_tx_buffers[CAN_TX_BUFFER_COUNT];
+static can_tx_t *s_heartbeat_tx_buffer;
+static can_rx_msg_t s_can_rx_queue[CAN_RX_QUEUE_CAPACITY];
+static volatile uint8_t s_can_rx_head;
+static volatile uint8_t s_can_rx_tail;
+static volatile uint32_t s_can_rx_count;
 
 /* USER CODE END PV */
 
@@ -122,16 +139,49 @@ static void DispatchUdsMessage(void *link,
     UDS_Dispatch(payload, (uint16_t)length);
 }
 
-static bool ReceiveUdsCanFrame(const can_frame_t *frame)
+static void ReceiveUdsCanFrame(void *object, void *message)
 {
-    if ((frame == NULL) || (frame->id != CAN_ID_UDS_REQUEST) ||
-        (frame->dlc == 0U) || (frame->dlc > CAN_CLASSIC_MAX_DLC))
+    uint8_t next_head;
+
+    if ((object == NULL) || (message == NULL) ||
+        (can_rx_msg_read_ident(message) != CAN_ID_UDS_REQUEST))
     {
-        return false;
+        return;
     }
 
-    isotp_on_can_message(&s_uds_isotp, frame->data, frame->dlc);
-    return true;
+    if ((can_rx_msg_read_dlc(message) == 0U) ||
+        (can_rx_msg_read_dlc(message) >
+         sizeof(((can_rx_msg_t *)message)->data)))
+    {
+        return;
+    }
+
+    next_head = (uint8_t)((s_can_rx_head + 1U) % CAN_RX_QUEUE_CAPACITY);
+    if (next_head == s_can_rx_tail)
+    {
+        s_can_module.CANerrorStatus |= CAN_ERRRX_OVERFLOW;
+        return;
+    }
+
+    s_can_rx_queue[s_can_rx_head] = *(can_rx_msg_t *)message;
+    s_can_rx_head = next_head;
+    s_can_rx_count++;
+}
+
+static void PollUdsCanFrames(void)
+{
+    while (s_can_rx_head != s_can_rx_tail)
+    {
+        can_rx_msg_t message;
+        uint32_t primask = __get_PRIMASK();
+
+        __disable_irq();
+        message = s_can_rx_queue[s_can_rx_tail];
+        s_can_rx_tail =
+            (uint8_t)((s_can_rx_tail + 1U) % CAN_RX_QUEUE_CAPACITY);
+        __set_PRIMASK(primask);
+        isotp_on_can_message(&s_uds_isotp, message.data, message.dlc);
+    }
 }
 
 static void RequestReset(void)
@@ -151,32 +201,42 @@ static void PollReset(void)
 
 static void SendStartupCheckpoint(uint8_t stage)
 {
-    can_frame_t frame = {0};
-
     GW_LOG_I("startup checkpoint=0x%02X", (unsigned int)stage);
 
-    frame.id = CAN_ID_HEARTBEAT;
-    frame.dlc = CAN_CLASSIC_MAX_DLC;
-    frame.data[0] = 0xB0U;
-    frame.data[1] = stage;
-    frame.data[2] = (uint8_t)CAN_GetRxCount();
-    frame.data[3] = (uint8_t)CAN_GetTxCount();
-    frame.data[4] = (uint8_t)CAN_GetErrorCount();
-    (void)CAN_SendFrame(&frame);
+    if ((s_heartbeat_tx_buffer == NULL) ||
+        s_heartbeat_tx_buffer->bufferFull)
+    {
+        return;
+    }
+
+    memset(s_heartbeat_tx_buffer->data, 0,
+           sizeof(s_heartbeat_tx_buffer->data));
+    s_heartbeat_tx_buffer->data[0] = 0xB0U;
+    s_heartbeat_tx_buffer->data[1] = stage;
+    s_heartbeat_tx_buffer->data[2] = (uint8_t)s_can_rx_count;
+    s_heartbeat_tx_buffer->data[3] = (uint8_t)s_can_module.CANtxCount;
+    s_heartbeat_tx_buffer->data[4] =
+        (uint8_t)s_can_module.CANerrorStatus;
+    (void)can_send(&s_can_module, s_heartbeat_tx_buffer);
 }
 
 
 static void SendHeartbeat(void)
 {
-    can_frame_t heartbeat = {0};
+    if ((s_heartbeat_tx_buffer == NULL) ||
+        s_heartbeat_tx_buffer->bufferFull)
+    {
+        return;
+    }
 
-    heartbeat.id = CAN_ID_HEARTBEAT;
-    heartbeat.dlc = CAN_CLASSIC_MAX_DLC;
-    heartbeat.data[0] = 0xA5U;
-    heartbeat.data[1] = (uint8_t)CAN_GetRxCount();
-    heartbeat.data[2] = (uint8_t)CAN_GetTxCount();
-    heartbeat.data[3] = (uint8_t)CAN_GetErrorCount();
-    (void)CAN_SendFrame(&heartbeat);
+    memset(s_heartbeat_tx_buffer->data, 0,
+           sizeof(s_heartbeat_tx_buffer->data));
+    s_heartbeat_tx_buffer->data[0] = 0xA5U;
+    s_heartbeat_tx_buffer->data[1] = (uint8_t)s_can_rx_count;
+    s_heartbeat_tx_buffer->data[2] = (uint8_t)s_can_module.CANtxCount;
+    s_heartbeat_tx_buffer->data[3] =
+        (uint8_t)s_can_module.CANerrorStatus;
+    (void)can_send(&s_can_module, s_heartbeat_tx_buffer);
 }
 
 static void HeartbeatThreadEntry(void *parameter)
@@ -198,7 +258,7 @@ static void OtaThreadEntry(void *parameter)
     {
         uint32_t now = HAL_GetTick();
 
-        CAN_Transport_Poll();
+        PollUdsCanFrames();
         isotp_poll(&s_uds_isotp);
         UDS_Poll(now);
         Download_Poll();
@@ -274,14 +334,11 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_FDCAN1_Init();
   /* USER CODE BEGIN 2 */
     /* The bootloader armed the independent watchdog; feed it immediately and
      * keep feeding from a dedicated worker thread. */
     Watchdog_Feed();
     HAL_GPIO_WritePin(GPIOE, GPIO_PIN_0, GPIO_PIN_SET);
-    CAN_Transport_Init(CAN_SendFrame);
-    CAN_Transport_SetRxSource(CAN_TakeRxFrame);
     isotp_init_link(&s_uds_isotp,
                     CAN_ID_UDS_RESPONSE,
                     s_isotp_send_buffer,
@@ -289,22 +346,76 @@ int main(void)
                     s_isotp_receive_buffer,
                     sizeof(s_isotp_receive_buffer));
     isotp_set_rx_done_cb(&s_uds_isotp, DispatchUdsMessage, NULL);
-    CAN_Transport_SetRxHandler(ReceiveUdsCanFrame);
 
     {
-        bool can_started = CAN_Start(CAN_ID_UDS_REQUEST);
+        can_return_error_t can_result;
+        bool can_started;
+
+        s_can_stm32.CANHandle = FDCAN_Port_GetHandle();
+        s_can_stm32.HWInitFunction = MX_FDCAN1_Init;
+        can_result = can_module_init(&s_can_module,
+                                     &s_can_stm32,
+                                     s_can_rx_buffers,
+                                     CAN_RX_BUFFER_COUNT,
+                                     s_can_tx_buffers,
+                                     CAN_TX_BUFFER_COUNT,
+                                     CAN_BIT_RATE);
+        if (can_result == ERROR_NO)
+        {
+            can_result = can_rx_buffer_init(&s_can_module,
+                                            0U,
+                                            CAN_ID_UDS_REQUEST,
+                                            0x07FFU,
+                                            false,
+                                            &s_uds_isotp,
+                                            ReceiveUdsCanFrame);
+        }
+
+        if (can_result == ERROR_NO)
+        {
+            can_tx_t *isotp_tx_buffer = can_tx_buffer_init(
+                &s_can_module,
+                CAN_TX_UDS_INDEX,
+                CAN_ID_UDS_RESPONSE,
+                false,
+                8U,
+                false);
+            can_tx_t *ulog_tx_buffer = can_tx_buffer_init(
+                &s_can_module,
+                CAN_TX_ULOG_INDEX,
+                CAN_ID_MCU_ULOG,
+                false,
+                8U,
+                false);
+
+            s_heartbeat_tx_buffer = can_tx_buffer_init(
+                &s_can_module,
+                CAN_TX_HEARTBEAT_INDEX,
+                CAN_ID_HEARTBEAT,
+                false,
+                8U,
+                false);
+            can_started = (isotp_tx_buffer != NULL) &&
+                          (ulog_tx_buffer != NULL) &&
+                          (s_heartbeat_tx_buffer != NULL);
+            if (can_started)
+            {
+                isotp_stm32_init(&s_can_module, isotp_tx_buffer);
+                can_set_normal_mode(&s_can_module);
+                can_started = s_can_module.CANnormal;
+            }
+            if (can_started)
+            {
+                can_started = ULogCan_Init(&s_can_module, ulog_tx_buffer);
+            }
+        }
+        else
+        {
+            can_started = false;
+        }
 
         startup_health_ok = startup_health_ok && can_started;
         if (!can_started)
-        {
-            Error_Handler();
-        }
-    }
-    {
-        bool ulog_ready = ULogCan_Init();
-
-        startup_health_ok = startup_health_ok && ulog_ready;
-        if (!ulog_ready)
         {
             Error_Handler();
         }
@@ -423,8 +534,8 @@ int main(void)
     {
         /* The FDCAN controller recovers from bus-off automatically; this
          * main-loop task only polls the PSR register to keep the classified
-         * error status fresh (mirrors CANopenNode CO_CANmodule_process). */
-        CAN_module_process();
+         * error status fresh (mirrors CANopenNode can_module_process). */
+        can_module_process(&s_can_module);
         (void)rt_thread_mdelay(1);
     }
 }

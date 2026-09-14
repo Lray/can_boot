@@ -147,7 +147,6 @@ def repair_main(path: Path) -> str:
     )
     deferred_uart_init = (
         "  MX_GPIO_Init();\n"
-        "  MX_FDCAN1_Init();\n"
         "  /* USER CODE BEGIN 2 */"
     )
     return replace_or_verify(text, generated_uart_init, deferred_uart_init, path)

@@ -87,7 +87,6 @@
         "main.h"
       ],
       "forbid_includes": [
-        "can_transport.h",
         "isotp.h",
         "uds_server.h",
         "uds_read_did.h",
@@ -96,8 +95,6 @@
         "security_*.h"
       ],
       "forbidden_symbols": [
-        "CAN_Transport_*",
-        "can_transport_*",
         "ISOTP_*",
         "isotp_*",
         "UDS_*",
@@ -123,16 +120,14 @@
       "name": "stm32-can-driver-must-not-depend-on-upper-layers",
       "from": [
         "transport/can_driver_stm32.c",
-        "transport/can_driver_stm32.h"
+        "transport/can_driver.h"
       ],
       "allowed_project_includes": [
         "can_driver.h",
-        "can_driver_stm32.h",
-        "fdcan.h"
+        "fdcan.h",
+        "main.h"
       ],
       "forbid_includes": [
-        "main.h",
-        "can_transport.h",
         "isotp.h",
         "uds_server.h",
         "uds_read_did.h",
@@ -142,7 +137,6 @@
         "ulog*.h"
       ],
       "forbidden_symbols": [
-        "CAN_Transport_*",
         "ISOTP_*",
         "UDS_*",
         "Download_*",
@@ -157,50 +151,17 @@
       "reason": "The STM32 CAN driver owns hardware queues and recovery only; it cannot depend on transport, protocol, OTA, security, or logging policy"
     },
     {
-      "name": "can-transport-must-not-depend-on-protocol",
-      "from": [
-        "transport/can_transport.c",
-        "transport/can_transport.h"
-      ],
-      "allowed_project_includes": [
-        "can_transport.h",
-        "can_frame.h",
-        "can_driver.h"
-      ],
-      "forbid_includes": [
-        "isotp.h",
-        "uds_server.h",
-        "uds_read_did.h",
-        "uds_msg.h",
-        "download.h",
-        "security_*.h"
-      ],
-      "forbidden_symbols": [
-        "ISOTP_*",
-        "isotp_*",
-        "UDS_*",
-        "uds_*",
-        "Download_*",
-        "download_*",
-        "Security*",
-        "security_*",
-        "BootObservation_*",
-        "ImageConfirm_*",
-        "Confirm_*",
-        "ImageVerify_*"
-      ],
-      "reason": "the CAN transport abstraction cannot know ISO-TP, UDS, OTA, security, or logging policy"
-    },
-    {
       "name": "isotp-must-not-call-uds-or-logging",
       "from": [
-        "transport/isotp_stm32.c"
+        "transport/isotp_stm32.c",
+        "transport/isotp_stm32.h"
       ],
       "allowed_project_includes": [
         "isotp_user.h",
         "isotp_defines.h",
         "can_network.h",
-        "can_transport.h",
+        "can_driver.h",
+        "isotp_stm32.h",
         "stm32u5xx_hal.h"
       ],
       "forbid_includes": [
@@ -238,12 +199,10 @@
       ],
       "allowed_project_includes": [
         "ulog_can_wire.h",
-        "can_frame.h",
+        "can_driver.h",
         "can_network.h"
       ],
       "forbid_includes": [
-        "can_driver.h",
-        "can_transport.h",
         "isotp.h",
         "uds_server.h",
         "uds_read_did.h",
@@ -251,7 +210,6 @@
         "security_*.h"
       ],
       "forbidden_symbols": [
-        "CAN_Transport_*",
         "ISOTP_*",
         "UDS_*",
         "Download_*",
@@ -271,7 +229,6 @@
         "can_driver.h"
       ],
       "forbid_includes": [
-        "can_transport.h",
         "isotp.h",
         "uds_server.h",
         "uds_read_did.h",
@@ -279,7 +236,6 @@
         "security_*.h"
       ],
       "forbidden_symbols": [
-        "CAN_Transport_*",
         "ISOTP_*",
         "UDS_*",
         "Download_*",
@@ -313,9 +269,7 @@
         "main.h",
         "fdcan.h",
         "can_driver.h",
-        "can_frame.h",
         "can_network.h",
-        "can_transport.h",
         "flash_map.h",
         "image_verify.h",
         "isotp.h",
@@ -382,8 +336,7 @@
       "forbid_includes": [
         "main.h",
         "fdcan.h",
-        "can_driver.h",
-        "can_transport.h"
+        "can_driver.h"
       ],
       "forbidden_symbols": [
         "Error_Handler",
@@ -417,9 +370,7 @@
         "boot_observation.h",
         "image_confirm.h",
         "can_driver.h",
-        "can_frame.h",
         "can_network.h",
-        "can_transport.h",
         "confirm.h",
         "download.h",
         "flash_map.h",
@@ -452,36 +403,14 @@
       "reason": "UDS wire byte-order helpers are stateless leaves and cannot own protocol, domain, transport, logging, or hardware policy"
     },
     {
-      "name": "can-frame-contract-must-remain-neutral",
-      "from": [
-        "transport/can_frame.h"
-      ],
-      "allowed_project_includes": [],
-      "forbidden_symbols": [
-        "CAN_Transport_*",
-        "ISOTP_*",
-        "UDS_*",
-        "Download_*",
-        "Security*",
-        "Log_*",
-        "BootObservation_*",
-        "ImageConfirm_*",
-        "Confirm_*",
-        "flash_area_*",
-        "ImageVerify_*"
-      ],
-      "reason": "the CAN frame value contract is transport-neutral and cannot acquire protocol, OTA, security, logging, or persistence behavior"
-    },
-    {
-      "name": "can-driver-contract-must-remain-below-transport",
+      "name": "can-driver-contract-must-remain-below-protocol",
       "from": [
         "transport/can_driver.h"
       ],
       "allowed_project_includes": [
-        "can_frame.h"
+        "main.h"
       ],
       "forbidden_symbols": [
-        "CAN_Transport_*",
         "ISOTP_*",
         "UDS_*",
         "Download_*",
@@ -493,7 +422,7 @@
         "flash_area_*",
         "ImageVerify_*"
       ],
-      "reason": "the CAN driver contract exposes frame I/O only and cannot depend on transport, protocol, OTA, security, logging, or persistence policy"
+      "reason": "the CAN driver contract exposes CANopen-style frame I/O and cannot depend on protocol, OTA, security, logging, or persistence policy"
     },
     {
       "name": "flash-map-must-not-depend-on-ota-or-protocol",

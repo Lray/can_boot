@@ -2,22 +2,26 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "can_transport.h"
+#include "can_driver.h"
 #include "isotp.h"
+#include "isotp_stm32.h"
 #include "isotp_user.h"
 #include "stm32u5xx_hal.h"
 
-static CAN_ReturnError_t s_can_result;
+static can_return_error_t s_can_result;
 static uint32_t s_now_ms;
 static uint32_t s_sent_count;
 static IsoTpLink s_link;
 static uint8_t s_send_buffer[32U];
 static uint8_t s_receive_buffer[32U];
+static can_module_t s_can_module;
+static can_tx_t s_tx_buffer;
 
-static CAN_ReturnError_t TestCanSend(const can_frame_t *frame)
+can_return_error_t can_send(can_module_t *CANmodule, can_tx_t *buffer)
 {
-    assert(frame != NULL);
-    if (s_can_result == CAN_ERROR_NO)
+    assert(CANmodule == &s_can_module);
+    assert(buffer == &s_tx_buffer);
+    if (s_can_result == ERROR_NO)
     {
         s_sent_count++;
     }
@@ -34,10 +38,13 @@ static void ResetTest(uint32_t now_ms)
     memset(&s_link, 0, sizeof(s_link));
     memset(s_send_buffer, 0, sizeof(s_send_buffer));
     memset(s_receive_buffer, 0, sizeof(s_receive_buffer));
+    memset(&s_can_module, 0, sizeof(s_can_module));
+    memset(&s_tx_buffer, 0, sizeof(s_tx_buffer));
     s_now_ms = now_ms;
-    s_can_result = CAN_ERROR_NO;
+    s_can_result = ERROR_NO;
     s_sent_count = 0U;
-    CAN_Transport_Init(TestCanSend);
+    s_tx_buffer.ident = 0x7E8U;
+    isotp_stm32_init(&s_can_module, &s_tx_buffer);
     isotp_init_link(&s_link,
                     0x7E8U,
                     s_send_buffer,
@@ -60,7 +67,7 @@ static void TestCanBackpressureUsesUpstreamNoSpaceContract(void)
     uint8_t payload[8U] = {0};
 
     ResetTest(0U);
-    s_can_result = CAN_ERROR_TX_BUSY;
+    s_can_result = ERROR_TX_BUSY;
     assert(isotp_send(&s_link, payload, sizeof(payload)) ==
            ISOTP_RET_NOSPACE);
     assert(s_sent_count == 0U);
