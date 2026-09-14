@@ -97,7 +97,6 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     security/security_token_cose.c
     security/security_crypto_port.c
     transport/can_driver_stm32.c
-    transport/can_transport.c
     transport/isotp_stm32.c
     transport/ulog_can.c
     transport/ulog_can_wire.c
