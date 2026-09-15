@@ -18,8 +18,11 @@ set(CMAKE_C_EXTENSIONS OFF)
 
 set(TRANSPORT_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/../transport)
 set(UDS_DIR        ${CMAKE_CURRENT_SOURCE_DIR}/../uds)
+set(IDENTITY_DIR   ${CMAKE_CURRENT_SOURCE_DIR}/../identity)
+set(LSS_DIR        ${CMAKE_CURRENT_SOURCE_DIR}/../lss)
 set(CORE_INC_DIR   ${CMAKE_CURRENT_SOURCE_DIR}/../Core/Inc)
 set(REPO_INC_DIR   ${CMAKE_CURRENT_SOURCE_DIR}/../..)
+set(STORAGE_DIR    ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/CanOpenSTM32/CANopenNode_STM32)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/isotp.cmake)
 can_add_isotp(${CMAKE_CURRENT_BINARY_DIR}/isotp-c)
@@ -28,6 +31,8 @@ set(TEST_MODULE_INC_DIRS
     ${REPO_INC_DIR}
     ${TRANSPORT_DIR}
     ${UDS_DIR}
+    ${IDENTITY_DIR}
+    ${LSS_DIR}
     ${CORE_INC_DIR}
 )
 
@@ -106,3 +111,44 @@ target_include_directories(download_resume_host_test PRIVATE
     ${REPO_INC_DIR}
 )
 configure_host_test(download_resume_host_test)
+
+# ---- factory identity host test ----
+add_executable(factory_identity_host_test
+    factory_identity_host_test.c
+    ${IDENTITY_DIR}/factory_identity.c
+)
+target_include_directories(factory_identity_host_test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../boot
+    ${IDENTITY_DIR}
+)
+configure_host_test(factory_identity_host_test)
+
+# ---- STM32 Node-ID persistence adapter host test ----
+add_executable(storage_blank_host_test
+    storage_blank_host_test.c
+    ${STORAGE_DIR}/CO_storageBlank.c
+)
+target_include_directories(storage_blank_host_test BEFORE PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/fakes/lss
+)
+target_include_directories(storage_blank_host_test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../boot
+    ${LSS_DIR}
+    ${REPO_INC_DIR}
+    ${STORAGE_DIR}
+)
+configure_host_test(storage_blank_host_test)
+
+# ---- upstream LSS lifecycle and callback integration host test ----
+add_executable(lss_slave_host_test
+    lss_slave_host_test.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/CANopenNode/305/CO_LSSslave.c
+)
+target_include_directories(lss_slave_host_test BEFORE PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/fakes/lss
+)
+target_include_directories(lss_slave_host_test PRIVATE
+    ${LSS_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/CANopenNode
+)
+configure_host_test(lss_slave_host_test)

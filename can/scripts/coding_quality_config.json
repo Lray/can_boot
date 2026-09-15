@@ -6,6 +6,8 @@
     "Tests",
     "boot",
     "download",
+    "identity",
+    "lss",
     "security",
     "transport",
     "uds"
@@ -14,6 +16,8 @@
     "Core/Inc",
     "boot",
     "download",
+    "identity",
+    "lss",
     "security",
     "transport",
     "uds"
@@ -21,11 +25,15 @@
   "include_globs": [
     "boot/*.c",
     "download/*.c",
+    "identity/*.c",
     "security/*.c",
     "transport/*.c",
     "uds/*.c",
     "boot/*.h",
     "download/*.h",
+    "identity/*.h",
+    "lss/*.h",
+    "lss/301/*.h",
     "security/*.h",
     "transport/*.h",
     "uds/*.h",
@@ -38,11 +46,15 @@
   "dependency_rule_coverage": [
     "boot/*.c",
     "download/*.c",
+    "identity/*.c",
     "security/*.c",
     "transport/*.c",
     "uds/*.c",
     "boot/*.h",
     "download/*.h",
+    "identity/*.h",
+    "lss/*.h",
+    "lss/301/*.h",
     "security/*.h",
     "transport/*.h",
     "uds/*.h",
@@ -61,6 +73,10 @@
     {
       "source_glob": "download/*.c",
       "header_dir": "download"
+    },
+    {
+      "source_glob": "identity/*.c",
+      "header_dir": "identity"
     },
     {
       "source_glob": "security/*.c",
@@ -454,6 +470,42 @@
       ],
       "allowed_project_includes": [],
       "reason": "the mini_mcuboot flash-map API uses only standard C types and cannot leak board layout contracts"
+    },
+    {
+      "name": "factory-identity-must-remain-read-only",
+      "from": [
+        "identity/factory_identity.c",
+        "identity/factory_identity.h"
+      ],
+      "allowed_project_includes": [
+        "factory_identity.h",
+        "flash_map.h",
+        "sysflash.h"
+      ],
+      "forbidden_symbols": [
+        "flash_area_erase",
+        "flash_area_write",
+        "HAL_FLASH_",
+        "CO_",
+        "UDS_"
+      ],
+      "reason": "runtime firmware may read the factory identity but only the production provisioning flow may erase or program its dedicated page"
+    },
+    {
+      "name": "lss-driver-adapter-must-map-only-the-can-abi",
+      "from": [
+        "lss/301/CO_driver.h"
+      ],
+      "allowed_project_includes": [
+        "can_driver.h"
+      ],
+      "forbidden_symbols": [
+        "HAL_FDCAN_",
+        "HAL_FLASH_",
+        "UDS_",
+        "Download_"
+      ],
+      "reason": "the adapter maps upstream CANopenNode names to the existing target driver ABI only"
     },
     {
       "name": "boot-artifacts-must-not-depend-on-download-or-protocol",

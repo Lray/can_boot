@@ -67,7 +67,9 @@ state machine. It does not justify a multi-controller catalog or scheduler.
 
 - Multi-MCU manifests, controller catalogs, node discovery, dynamic CAN IDs,
   or per-bus parallel scheduling.
-- CANopenNode or an IP/OTA protocol stack on the MCU.
+- A complete CANopenNode or IP/OTA protocol stack on the MCU. The official
+  standalone LSS Slave used for identity selection and communication
+  configuration is the only CANopen exception.
 - Uptane metadata roles or an automotive campaign-management platform.
 - A second custom HawkBit DDI client, HTTP downloader, SWU parser, or MCUboot
   signature verifier.

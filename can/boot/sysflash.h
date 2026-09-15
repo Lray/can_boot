@@ -9,6 +9,8 @@
 #define FLASH_AREA_IMAGE_1 2U
 #define FLASH_AREA_BOOT_USER 3U
 #define FLASH_AREA_DOWNLOAD_JOURNAL 4U
+#define FLASH_AREA_FACTORY_IDENTITY 5U
+#define FLASH_AREA_COMMUNICATION_CONFIG 6U
 
 /* Logical application-slot numbers are persisted in boot/download records. */
 #define SLOT_A 0U
@@ -29,6 +31,15 @@
 #define FLASH_AREA_IMAGE_1_ADDRESS \
     (FLASH_AREA_IMAGE_0_ADDRESS + FLASH_AREA_IMAGE_0_SIZE)
 #define FLASH_AREA_IMAGE_1_SIZE 0x00020000U
+#define FLASH_AREA_COMMUNICATION_CONFIG_ADDRESS 0x081F2000U
+#define FLASH_AREA_COMMUNICATION_CONFIG_SIZE FLASH_PAGE_SIZE_BYTES
+#define FLASH_AREA_FACTORY_IDENTITY_ADDRESS \
+    (FLASH_AREA_COMMUNICATION_CONFIG_ADDRESS + \
+     FLASH_AREA_COMMUNICATION_CONFIG_SIZE)
+#define FLASH_AREA_FACTORY_IDENTITY_SIZE FLASH_PAGE_SIZE_BYTES
+#define FLASH_AREA_BOOT_SECURITY_STATE_ADDRESS \
+    (FLASH_AREA_FACTORY_IDENTITY_ADDRESS + FLASH_AREA_FACTORY_IDENTITY_SIZE)
+#define FLASH_AREA_BOOT_SECURITY_STATE_SIZE (2U * FLASH_PAGE_SIZE_BYTES)
 #define FLASH_AREA_BOOT_USER_SIZE FLASH_PAGE_SIZE_BYTES
 #define FLASH_AREA_BOOT_USER_ADDRESS \
     (FLASH_BASE_ADDRESS + FLASH_SIZE_BYTES - FLASH_AREA_BOOT_USER_SIZE)
@@ -45,6 +56,26 @@
 #error "Boot user area address changed."
 #endif
 
+#if (FLASH_AREA_FACTORY_IDENTITY_ADDRESS != 0x081F4000U)
+#error "Factory identity area address changed."
+#endif
+
+#if ((FLASH_AREA_COMMUNICATION_CONFIG_ADDRESS + \
+      FLASH_AREA_COMMUNICATION_CONFIG_SIZE) != \
+     FLASH_AREA_FACTORY_IDENTITY_ADDRESS)
+#error "Communication configuration must precede factory identity."
+#endif
+
+#if (FLASH_AREA_BOOT_SECURITY_STATE_ADDRESS != 0x081F6000U)
+#error "Boot security-state area address changed."
+#endif
+
+#if ((FLASH_AREA_BOOT_SECURITY_STATE_ADDRESS + \
+      FLASH_AREA_BOOT_SECURITY_STATE_SIZE) != \
+     FLASH_AREA_DOWNLOAD_JOURNAL_ADDRESS)
+#error "Boot security-state must precede the download journal."
+#endif
+
 #if (FLASH_AREA_IMAGE_1_ADDRESS != \
      (FLASH_AREA_IMAGE_0_ADDRESS + FLASH_AREA_IMAGE_0_SIZE))
 #error "Image 1 must follow image 0."
@@ -57,8 +88,8 @@
 #endif
 
 #if ((FLASH_AREA_IMAGE_1_ADDRESS + FLASH_AREA_IMAGE_1_SIZE) > \
-     FLASH_AREA_DOWNLOAD_JOURNAL_ADDRESS)
-#error "Application image areas overlap download journal storage."
+     FLASH_AREA_COMMUNICATION_CONFIG_ADDRESS)
+#error "Application image areas overlap communication configuration storage."
 #endif
 
 #endif /* SYSFLASH_H */

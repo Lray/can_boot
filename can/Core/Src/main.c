@@ -27,10 +27,13 @@
 /* USER CODE BEGIN Includes */
 #include "can_driver.h"
 #include "shared/can_network.h"
+#include "CO_storageBlank.h"
 #include "download.h"
+#include "factory_identity.h"
 #include "image_confirm.h"
 #include "isotp.h"
 #include "isotp_stm32.h"
+#include "305/CO_LSSslave.h"
 #include "security_access_entropy.h"
 #include "uds_server.h"
 #include "ulog_can.h"
@@ -70,13 +73,17 @@
 #define WATCHDOG_FEED_INTERVAL_MS 500U
 #define THREAD_TIMESLICE      20U
 #define UDS_ISOTP_BUFFER_SIZE 512U
-#define CAN_BIT_RATE          500U
-#define CAN_RX_BUFFER_COUNT   1U
+#define CAN_RX_BUFFER_COUNT   2U
 #define CAN_RX_QUEUE_CAPACITY 32U
-#define CAN_TX_BUFFER_COUNT   3U
+#define CAN_TX_BUFFER_COUNT   4U
+#define CAN_RX_UDS_INDEX      0U
+#define CAN_RX_LSS_INDEX      1U
 #define CAN_TX_UDS_INDEX      0U
 #define CAN_TX_ULOG_INDEX     1U
 #define CAN_TX_HEARTBEAT_INDEX 2U
+#define CAN_TX_LSS_INDEX      3U
+#define LSS_STORAGE_BIT_RATE_SHIFT 8U
+#define LSS_STORAGE_RESERVED_MASK 0xFF000000U
 
 /* USER CODE END PD */
 
@@ -108,6 +115,11 @@ static can_module_t s_can_module;
 static can_stm32_t s_can_stm32;
 static can_rx_t s_can_rx_buffers[CAN_RX_BUFFER_COUNT];
 static can_tx_t s_can_tx_buffers[CAN_TX_BUFFER_COUNT];
+static CO_LSSslave_t s_lss_slave;
+static CO_LSS_address_t s_lss_address;
+static uint8_t s_lss_pending_node_id;
+static uint16_t s_lss_pending_bit_rate;
+static uint32_t s_lss_storage_word;
 static can_tx_t *s_heartbeat_tx_buffer;
 static can_rx_msg_t s_can_rx_queue[CAN_RX_QUEUE_CAPACITY];
 static volatile uint8_t s_can_rx_head;
@@ -197,6 +209,80 @@ static const uds_transport_t s_uds_transport = {
     .send = SendUdsResponse,
     .response_pending = UdsResponsePending,
 };
+
+static bool ValidLssNodeId(uint8_t node_id)
+{
+    return ((node_id >= 1U) && (node_id <= 0x7FU)) ||
+           (node_id == CO_LSS_NODE_ID_ASSIGNMENT);
+}
+
+static uint32_t PackLssConfiguration(uint8_t node_id)
+{
+    return (uint32_t)node_id |
+           ((uint32_t)CAN_BIT_RATE_KBIT << LSS_STORAGE_BIT_RATE_SHIFT);
+}
+
+static bool UnpackLssConfiguration(uint32_t packed, uint8_t* node_id)
+{
+    uint8_t stored_node_id = (uint8_t)packed;
+    uint16_t stored_bit_rate =
+        (uint16_t)(packed >> LSS_STORAGE_BIT_RATE_SHIFT);
+
+    if (((packed & LSS_STORAGE_RESERVED_MASK) != 0U) ||
+        !ValidLssNodeId(stored_node_id) ||
+        (stored_bit_rate != CAN_BIT_RATE_KBIT))
+    {
+        return false;
+    }
+
+    *node_id = stored_node_id;
+    return true;
+}
+
+static bool_t StoreLssConfiguration(void *object,
+                                    uint8_t node_id,
+                                    uint16_t bit_rate)
+{
+    uint32_t previous;
+
+    (void)object;
+    if ((bit_rate != CAN_BIT_RATE_KBIT) || !ValidLssNodeId(node_id))
+    {
+        return false;
+    }
+
+    previous = s_lss_storage_word;
+    s_lss_storage_word = PackLssConfiguration(node_id);
+    if (CO_storageBlank_auto_process(&s_lss_storage_word, false) != 0U)
+    {
+        s_lss_storage_word = previous;
+        return false;
+    }
+
+    return true;
+}
+
+static bool ResetLssCommunication(void)
+{
+    if (CO_LSSslave_init(&s_lss_slave,
+                         &s_lss_address,
+                         &s_lss_pending_bit_rate,
+                         &s_lss_pending_node_id,
+                         &s_can_module,
+                         CAN_RX_LSS_INDEX,
+                         CO_CAN_ID_LSS_MST,
+                         &s_can_module,
+                         CAN_TX_LSS_INDEX,
+                         CO_CAN_ID_LSS_SLV) != CO_ERROR_NO)
+    {
+        return false;
+    }
+
+    CO_LSSslave_initCfgStoreCall(&s_lss_slave,
+                                 NULL,
+                                 StoreLssConfiguration);
+    return true;
+}
 
 static void RequestReset(void)
 {
@@ -291,8 +377,11 @@ static void WatchdogThreadEntry(void *parameter)
 int main(void)
 {
   bool startup_health_ok = true;
+  factory_identity_t identity;
+  CO_ReturnError_t storage_result;
   rt_err_t result = RT_EOK;
   uint32_t reset_reason = 0U;
+  uint32_t storage_init_error = 0U;
 
   /* USER CODE BEGIN 1 */
 
@@ -312,6 +401,26 @@ int main(void)
   {
     startup_health_ok = false;
     Error_Handler();
+  }
+
+  if (!FactoryIdentity_Read(&identity))
+  {
+      startup_health_ok = false;
+      Error_Handler();
+  }
+  s_lss_address.identity.vendorID = identity.vendor_id;
+  s_lss_address.identity.productCode = identity.product_code;
+  s_lss_address.identity.revisionNumber = identity.revision_number;
+  s_lss_address.identity.serialNumber = identity.serial_number;
+  s_lss_pending_bit_rate = CAN_BIT_RATE_KBIT;
+  s_lss_storage_word = UINT32_MAX;
+  storage_result = CO_storageBlank_init(&s_lss_storage_word,
+                                        &storage_init_error);
+  if ((storage_result != CO_ERROR_NO) ||
+      !UnpackLssConfiguration(s_lss_storage_word,
+                              &s_lss_pending_node_id))
+  {
+      s_lss_pending_node_id = CO_LSS_NODE_ID_ASSIGNMENT;
   }
 
   /* USER CODE BEGIN SysInit */
@@ -345,11 +454,11 @@ int main(void)
                                      CAN_RX_BUFFER_COUNT,
                                      s_can_tx_buffers,
                                      CAN_TX_BUFFER_COUNT,
-                                     CAN_BIT_RATE);
+                                     CAN_BIT_RATE_KBIT);
         if (can_result == ERROR_NO)
         {
             can_result = can_rx_buffer_init(&s_can_module,
-                                            0U,
+                                            CAN_RX_UDS_INDEX,
                                             CAN_ID_UDS_REQUEST,
                                             0x07FFU,
                                             false,
@@ -383,7 +492,8 @@ int main(void)
                 false);
             can_started = (isotp_tx_buffer != NULL) &&
                           (ulog_tx_buffer != NULL) &&
-                          (s_heartbeat_tx_buffer != NULL);
+                          (s_heartbeat_tx_buffer != NULL) &&
+                          ResetLssCommunication();
             if (can_started)
             {
                 isotp_stm32_init(&s_can_module, isotp_tx_buffer);
@@ -514,6 +624,21 @@ int main(void)
 
     while (1)
     {
+        if (CO_LSSslave_process(&s_lss_slave))
+        {
+            s_can_module.CANnormal = false;
+            can_module_disable(&s_can_module);
+            if (!ResetLssCommunication())
+            {
+                Error_Handler();
+            }
+            can_set_normal_mode(&s_can_module);
+            if (!s_can_module.CANnormal)
+            {
+                Error_Handler();
+            }
+        }
+
         /* The FDCAN controller recovers from bus-off automatically; this
          * main-loop task only polls the PSR register to keep the classified
          * error status fresh (mirrors CANopenNode can_module_process). */

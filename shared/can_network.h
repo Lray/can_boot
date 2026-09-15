@@ -10,6 +10,9 @@
  * Naming follows the MCU tree (UPPER_SNAKE with U suffix).
  */
 
+/* --- Classic CAN physical profile --- */
+#define CAN_BIT_RATE_KBIT 500U
+
 /* --- Classic CAN 11-bit identifiers --- */
 /*
  * Project-specific single-MCU heartbeat, designed after CANopen Heartbeat.

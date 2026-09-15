@@ -44,6 +44,8 @@ MEMORY
   SRAM4 (xrw) : ORIGIN = 0x28000000, LENGTH = 16K
   FLASH (rx)  : ORIGIN = @CAN_FLASH_ORIGIN@, LENGTH = @CAN_FLASH_LENGTH@
 }
+ASSERT(ORIGIN(FLASH) + LENGTH(FLASH) <= 0x081F2000,
+       "FLASH image overlaps persistent MCU tail pages")
 /* Keep the initial MSP aligned and inside the final SRAM bank. */
 _estack = ORIGIN(RAM) + LENGTH(RAM) - 8;
 
