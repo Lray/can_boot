@@ -142,7 +142,9 @@ static void ReceiveUdsCanFrame(void *object, void *message)
 {
     uint8_t next_head;
 
-    if ((object == NULL) || (message == NULL) ||
+    (void)object;
+
+    if ((message == NULL) ||
         (can_rx_msg_read_ident(message) != CAN_ID_UDS_REQUEST))
     {
         return;
@@ -336,7 +338,7 @@ int main(void)
                                             CAN_ID_UDS_REQUEST,
                                             0x07FFU,
                                             false,
-                                            &s_uds_isotp,
+                                            NULL,
                                             ReceiveUdsCanFrame);
         }
 

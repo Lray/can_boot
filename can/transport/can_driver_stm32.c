@@ -211,7 +211,7 @@ can_rx_buffer_init(can_module_t* CANmodule, uint16_t index, uint16_t ident, uint
                    void (*CANrx_callback)(void* object, void* message)) {
     can_return_error_t ret = ERROR_NO;
 
-    if (CANmodule != NULL && object != NULL && CANrx_callback != NULL && index < CANmodule->rxSize) {
+    if (CANmodule != NULL && CANrx_callback != NULL && index < CANmodule->rxSize) {
         can_rx_t* buffer = &CANmodule->rxArray[index];
 
         /* Configure object variables */
@@ -501,10 +501,10 @@ can_module_process(can_module_t* CANmodule) {
  * \param[in]       fifo_isrs: List of interrupts for respected FIFO
  */
 #ifdef STM32_FDCAN_Driver
-static void
+static bool_t
 prv_read_can_received_msg(FDCAN_HandleTypeDef* hfdcan, uint32_t fifo, uint32_t fifo_isrs)
 #else
-static void
+static bool_t
 prv_read_can_received_msg(CAN_HandleTypeDef* hcan, uint32_t fifo, uint32_t fifo_isrs)
 #endif
 {
@@ -529,7 +529,7 @@ prv_read_can_received_msg(CAN_HandleTypeDef* hcan, uint32_t fifo, uint32_t fifo_
     /* Read received message from FIFO */
     if (HAL_FDCAN_GetRxMessage(hfdcan, fifo, &rx_hdr, rx_data) != HAL_OK) {
         CANModule_local->CANerrorStatus |= CAN_ERRRX_OVERFLOW;
-        return;
+        return false;
     }
     /* Setup identifier (with RTR) and length */
     rcvMsg.ident = rx_hdr.Identifier | (rx_hdr.RxFrameType == FDCAN_REMOTE_FRAME ? FLAG_RTR : 0x00);
@@ -574,7 +574,7 @@ prv_read_can_received_msg(CAN_HandleTypeDef* hcan, uint32_t fifo, uint32_t fifo_
     /* Read received message from FIFO */
     if (HAL_CAN_GetRxMessage(hcan, fifo, &rx_hdr, rcvMsg.data) != HAL_OK) {
         CANModule_local->CANerrorStatus |= CAN_ERRRX_OVERFLOW;
-        return;
+        return false;
     }
     /* Setup identifier (with RTR) and length */
     rcvMsg.ident = rx_hdr.StdId | (rx_hdr.RTR == CAN_RTR_REMOTE ? FLAG_RTR : 0x00);
@@ -606,6 +606,7 @@ prv_read_can_received_msg(CAN_HandleTypeDef* hcan, uint32_t fifo, uint32_t fifo_
     if (messageFound && buffer != NULL && buffer->CANrx_callback != NULL) {
         buffer->CANrx_callback(buffer->object, (void*)&rcvMsg);
     }
+    return true;
 }
 
 #ifdef STM32_FDCAN_Driver
@@ -619,10 +620,12 @@ void
 HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef* hfdcan, uint32_t RxFifo0ITs) {
     if (RxFifo0ITs & (FDCAN_IT_RX_FIFO0_FULL | FDCAN_IT_RX_FIFO0_MESSAGE_LOST)) {
         CANModule_local->CANerrorStatus |= CAN_ERRRX_OVERFLOW;
-        return;
     }
-    if (RxFifo0ITs & FDCAN_IT_RX_FIFO0_NEW_MESSAGE) {
-        prv_read_can_received_msg(hfdcan, FDCAN_RX_FIFO0, RxFifo0ITs);
+    uint32_t i = HAL_FDCAN_GetRxFifoFillLevel(hfdcan, FDCAN_RX_FIFO0);
+    for (; i > 0U; --i) {
+        if (!prv_read_can_received_msg(hfdcan, FDCAN_RX_FIFO0, RxFifo0ITs)) {
+            break;
+        }
     }
 }
 
@@ -630,16 +633,18 @@ HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef* hfdcan, uint32_t RxFifo0ITs) {
  * \brief           Rx FIFO 1 callback.
  * \param[in]       hfdcan: pointer to an FDCAN_HandleTypeDef structure that contains
  *                      the configuration information for the specified FDCAN.
- * \param[in]       RxFifo1ITs: indicates which Rx FIFO 0 interrupts are signaled.
+ * \param[in]       RxFifo1ITs: indicates which Rx FIFO 1 interrupts are signaled.
  */
 void
 HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef* hfdcan, uint32_t RxFifo1ITs) {
     if (RxFifo1ITs & (FDCAN_IT_RX_FIFO1_FULL | FDCAN_IT_RX_FIFO1_MESSAGE_LOST)) {
         CANModule_local->CANerrorStatus |= CAN_ERRRX_OVERFLOW;
-        return;
     }
-    if (RxFifo1ITs & FDCAN_IT_RX_FIFO1_NEW_MESSAGE) {
-        prv_read_can_received_msg(hfdcan, FDCAN_RX_FIFO1, RxFifo1ITs);
+    uint32_t i = HAL_FDCAN_GetRxFifoFillLevel(hfdcan, FDCAN_RX_FIFO1);
+    for (; i > 0U; --i) {
+        if (!prv_read_can_received_msg(hfdcan, FDCAN_RX_FIFO1, RxFifo1ITs)) {
+            break;
+        }
     }
 }
 
