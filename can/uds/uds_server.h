@@ -4,9 +4,13 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-struct IsoTpLink;
+typedef struct
+{
+    bool (*send)(const uint8_t *payload, uint16_t length);
+    bool (*response_pending)(void);
+} uds_transport_t;
 
-void UDS_Init(struct IsoTpLink *transport);
+void UDS_Init(const uds_transport_t *transport);
 void UDS_Dispatch(const uint8_t *request, uint16_t length);
 void UDS_Poll(uint32_t now_ms);
 

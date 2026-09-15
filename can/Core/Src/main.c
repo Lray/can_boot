@@ -183,6 +183,21 @@ static void PollUdsCanFrames(void)
     }
 }
 
+static bool SendUdsResponse(const uint8_t *payload, uint16_t length)
+{
+    return isotp_send(&s_uds_isotp, payload, length) == ISOTP_RET_OK;
+}
+
+static bool UdsResponsePending(void)
+{
+    return s_uds_isotp.send_status == ISOTP_SEND_STATUS_INPROGRESS;
+}
+
+static const uds_transport_t s_uds_transport = {
+    .send = SendUdsResponse,
+    .response_pending = UdsResponsePending,
+};
+
 static void RequestReset(void)
 {
     s_reset_requested = true;
@@ -399,7 +414,7 @@ int main(void)
         printf("reset flags=0x%08lX\r\n", (unsigned long)reset_reason);
     }
 
-    UDS_Init(&s_uds_isotp);
+    UDS_Init(&s_uds_transport);
     {
         image_confirm_result_t confirm_result =
             ImageConfirm_RunStartupSelfCheck(startup_health_ok);

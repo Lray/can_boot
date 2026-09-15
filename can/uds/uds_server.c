@@ -2,7 +2,6 @@
 
 #include "boot_config.h"
 #include "download.h"
-#include "isotp.h"
 #include "security_access.h"
 #include "shared/uds_protocol.h"
 #include "uds_read_did.h"
@@ -19,14 +18,13 @@ static bool s_suppress_positive_response;
 static bool s_reset_accepted;
 static uint32_t s_now_ms;
 static uint32_t s_s3_session_timeout_timer;
-static IsoTpLink *s_transport;
+static const uds_transport_t *s_transport;
 
 #define UDS_POSITIVE_RESPONSE_BUFFER_SIZE UDS_READ_DID_RESPONSE_MAX_SIZE
 
 static bool UDS_ResponseInProgress(void)
 {
-  return (s_transport != NULL) &&
-      (s_transport->send_status == ISOTP_SEND_STATUS_INPROGRESS);
+  return (s_transport != NULL) && s_transport->response_pending();
 }
 
 static void UDS_PollS3(uint32_t now_ms)
@@ -65,7 +63,7 @@ static bool UDS_SendPositive(uint8_t request_sid,
     }
 
     if ((s_transport == NULL) ||
-        (isotp_send(s_transport, response, response_length) != ISOTP_RET_OK))
+        !s_transport->send(response, response_length))
     {
         GW_LOG_E("positive response send failed sid=0x%02X",
                  (unsigned int)request_sid);
@@ -82,8 +80,7 @@ static bool UDS_SendNegative(uint8_t sid, uint8_t nrc)
     GW_LOG_W("negative response sid=0x%02X nrc=0x%02X",
           (unsigned int)sid,
           (unsigned int)nrc);
-    if ((s_transport == NULL) ||
-        (isotp_send(s_transport, rsp, sizeof(rsp)) != ISOTP_RET_OK))
+    if ((s_transport == NULL) || !s_transport->send(rsp, sizeof(rsp)))
     {
         GW_LOG_E("negative response send failed sid=0x%02X",
                  (unsigned int)sid);
@@ -678,9 +675,12 @@ static void UDS_HandleMcuReset(const uint8_t *request, uint16_t length)
     }
 }
 
-void UDS_Init(IsoTpLink *transport)
+void UDS_Init(const uds_transport_t *transport)
 {
-    s_transport = transport;
+    s_transport = ((transport != NULL) && (transport->send != NULL) &&
+                   (transport->response_pending != NULL))
+                      ? transport
+                      : NULL;
     s_session = SESSION_DEFAULT;
     s_reset_accepted = false;
     s_now_ms = 0U;
