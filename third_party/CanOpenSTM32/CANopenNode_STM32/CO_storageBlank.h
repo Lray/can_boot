@@ -25,34 +25,19 @@
 #ifndef CO_STORAGE_BLANK_H
 #define CO_STORAGE_BLANK_H
 
-#include "storage/CO_storage.h"
-
-#if ((CO_CONFIG_STORAGE)&CO_CONFIG_STORAGE_ENABLE) || defined CO_DOXYGEN
+#include "301/CO_driver.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* This is very basic example of implementing (object dictionary) data storage.
- * Data storage is target specific. CO_storageBlank.h and .c files only shows
- * the basic principle, but does nothing. For complete example of storage see:
- * - CANopenPIC/PIC32 uses eeprom with CANopenNode/storage/CO_storage.h/.c,
- *   CANopenNode/storage/CO_storageEeprom.h/.c, CANopenNode/storage/CO_eeprom.h
- *   and CANopenPIC/PIC32/CO_eepromPIC32.c files.
- * - CANopenLinux uses file system with CANopenNode/storage/CO_storage.h/.c and
- *   CANopenLinux/CO_storageLinux.h files.
- */
+CO_ReturnError_t CO_storageBlank_init(uint32_t* storage,
+                                      uint32_t* storageInitError);
 
-CO_ReturnError_t CO_storageBlank_init(CO_storage_t* storage, CO_CANmodule_t* CANmodule,
-                                      OD_entry_t* OD_1010_StoreParameters, OD_entry_t* OD_1011_RestoreDefaultParam,
-                                      CO_storage_entry_t* entries, uint8_t entriesCount, uint32_t* storageInitError);
-
-uint32_t CO_storageBlank_auto_process(CO_storage_t* storage, bool_t closeFiles);
+uint32_t CO_storageBlank_auto_process(uint32_t* storage, bool_t closeFiles);
 
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif /* (CO_CONFIG_STORAGE) & CO_CONFIG_STORAGE_ENABLE */
 
 #endif /* CO_STORAGE_BLANK_H */

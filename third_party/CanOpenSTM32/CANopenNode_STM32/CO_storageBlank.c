@@ -5,10 +5,6 @@
  * @author      Janez Paternoster
  * @copyright   2021 Janez Paternoster
  *
- * This file is part of CANopenNode, an opensource CANopen Stack.
- * Project home page is <https://github.com/CANopenNode/CANopenNode>.
- * For more information on CANopen see <http://www.can-cia.org/>.
- *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -24,73 +20,60 @@
 
 #include "CO_storageBlank.h"
 
-#if (CO_CONFIG_STORAGE) & CO_CONFIG_STORAGE_ENABLE
+#include <string.h>
 
-/*
- * Function for writing data on "Store parameters" command - OD object 1010
- *
- * For more information see file CO_storage.h, CO_storage_entry_t.
- */
-static ODR_t
-storeBlank(CO_storage_entry_t* entry, CO_CANmodule_t* CANmodule) {
+#include "flash_map.h"
+#include "sysflash.h"
 
-    /* Open a file and write data to it */
-    /* file = open(entry->pathToFileOrPointerToMemory); */
-    CO_LOCK_OD(CANmodule);
-    /* write(entry->addr, entry->len, file); */
-    CO_UNLOCK_OD(CANmodule);
+CO_ReturnError_t CO_storageBlank_init(uint32_t* storage,
+                                      uint32_t* storageInitError)
+{
+    const struct flash_area* area = NULL;
 
-    return ODR_OK;
-}
-
-/*
- * Function for restoring data on "Restore default parameters" command - OD 1011
- *
- * For more information see file CO_storage.h, CO_storage_entry_t.
- */
-static ODR_t
-restoreBlank(CO_storage_entry_t* entry, CO_CANmodule_t* CANmodule) {
-
-    /* disable (delete) the file, so default values will stay after startup */
-
-    return ODR_OK;
-}
-
-CO_ReturnError_t
-CO_storageBlank_init(CO_storage_t* storage, CO_CANmodule_t* CANmodule, OD_entry_t* OD_1010_StoreParameters,
-                     OD_entry_t* OD_1011_RestoreDefaultParam, CO_storage_entry_t* entries, uint8_t entriesCount,
-                     uint32_t* storageInitError) {
-    CO_ReturnError_t ret;
-
-    /* verify arguments */
-    if (storage == NULL || entries == NULL || entriesCount == 0 || storageInitError == NULL) {
+    if ((storage == NULL) || (storageInitError == NULL))
+    {
         return CO_ERROR_ILLEGAL_ARGUMENT;
     }
 
-    /* initialize storage and OD extensions */
-    ret = CO_storage_init(storage, CANmodule, OD_1010_StoreParameters, OD_1011_RestoreDefaultParam, storeBlank,
-                          restoreBlank, entries, entriesCount);
-    if (ret != CO_ERROR_NO) {
-        return ret;
+    *storage = UINT32_MAX;
+    *storageInitError = 0U;
+    if ((flash_area_open(FLASH_AREA_COMMUNICATION_CONFIG, &area) != 0) ||
+        (flash_area_read(area, 0U, storage, sizeof(*storage)) != 0))
+    {
+        *storageInitError = 1U;
+        return CO_ERROR_DATA_CORRUPT;
     }
 
-    /* initialize entries */
-    *storageInitError = 0;
-    for (uint8_t i = 0; i < entriesCount; i++) {
-        CO_storage_entry_t* entry = &entries[i];
-
-        /* verify arguments */
-        if (entry->addr == NULL || entry->len == 0 || entry->subIndexOD < 2) {
-            *storageInitError = i;
-            return CO_ERROR_ILLEGAL_ARGUMENT;
-        }
-
-        /* Open a file and read data from file to entry->addr */
-        /* file = open(entry->pathToFileOrPointerToMemory); */
-        /* read(entry->addr, entry->len, file); */
-    }
-
-    return ret;
+    return CO_ERROR_NO;
 }
 
-#endif /* (CO_CONFIG_STORAGE) & CO_CONFIG_STORAGE_ENABLE */
+uint32_t CO_storageBlank_auto_process(uint32_t* storage,
+                                      bool_t closeFiles)
+{
+    const struct flash_area* area = NULL;
+    uint32_t current = UINT32_MAX;
+    uint32_t verify = UINT32_MAX;
+    uint32_t program_unit[4];
+
+    (void)closeFiles;
+    if ((storage == NULL) ||
+        (flash_area_open(FLASH_AREA_COMMUNICATION_CONFIG, &area) != 0))
+    {
+        return 1U;
+    }
+
+    if ((flash_area_read(area, 0U, &current, sizeof(current)) == 0) &&
+        (current == *storage))
+    {
+        return 0U;
+    }
+
+    (void)memset(program_unit, 0xFF, sizeof(program_unit));
+    program_unit[0] = *storage;
+    return ((flash_area_erase(area, 0U,
+                              FLASH_AREA_COMMUNICATION_CONFIG_SIZE) == 0) &&
+            (flash_area_write(area, 0U,
+                              program_unit, sizeof(program_unit)) == 0) &&
+            (flash_area_read(area, 0U, &verify, sizeof(verify)) == 0) &&
+            (verify == *storage)) ? 0U : 1U;
+}
