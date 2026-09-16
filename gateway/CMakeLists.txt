@@ -22,6 +22,33 @@ set(GATEWAY_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/..
 )
 
+set(GATEWAY_CANOPEN_LINUX_DIR
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/CANopenLinux
+)
+set(GATEWAY_CANOPENNODE_DIR
+    ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/CANopenNode
+)
+
+add_library(gateway-canopen-linux STATIC
+    third_party/CANopenLinux/CO_driver.c
+    ../third_party/CANopenNode/305/CO_LSSmaster.c
+)
+target_include_directories(gateway-canopen-linux PUBLIC
+    ${GATEWAY_CANOPEN_LINUX_DIR}
+    ${GATEWAY_CANOPENNODE_DIR}
+)
+target_compile_definitions(gateway-canopen-linux PUBLIC _GNU_SOURCE CO_SINGLE_THREAD)
+
+add_library(gateway-storage-linux STATIC
+    third_party/CANopenLinux/CO_storageLinux.c
+    ../third_party/CANopenNode/301/crc16-ccitt.c
+)
+target_include_directories(gateway-storage-linux PUBLIC
+    ${GATEWAY_CANOPEN_LINUX_DIR}
+    ${GATEWAY_CANOPENNODE_DIR}
+)
+target_compile_definitions(gateway-storage-linux PUBLIC _GNU_SOURCE CO_SINGLE_THREAD)
+
 add_library(gateway-byte-order STATIC
     src/codec/byte_order.c
 )
