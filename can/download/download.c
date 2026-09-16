@@ -25,7 +25,6 @@ typedef struct
     uint8_t next_block_sequence_counter;
     uint32_t received;
     uint32_t image_size;
-    uint8_t payload_id[PAYLOAD_ID_SIZE];
 } download_session_t;
 
 static download_session_t s_download;
@@ -143,8 +142,11 @@ download_result_t Download_Begin(
     {
         return DOWNLOAD_RESULT_PROGRAMMING_FAILURE;
     }
-    if ((s_download.state != DOWNLOAD_STATE_READY) &&
-        (s_download.state != DOWNLOAD_STATE_COMPLETE))
+    if (s_download.state == DOWNLOAD_STATE_COMPLETE)
+    {
+        return DOWNLOAD_RESULT_SEQUENCE_ERROR;
+    }
+    if (s_download.state != DOWNLOAD_STATE_READY)
     {
         return DOWNLOAD_RESULT_NOT_READY;
     }
@@ -161,26 +163,9 @@ download_result_t Download_Begin(
     }
     flash_area_close(area);
 
-    if ((s_download.state == DOWNLOAD_STATE_COMPLETE) &&
-        ((s_download.image_size != image_size) ||
-         (memcmp(s_download.payload_id, payload_id, PAYLOAD_ID_SIZE) != 0)))
-    {
-        return DOWNLOAD_RESULT_SEQUENCE_ERROR;
-    }
-
     s_download.image_size = image_size;
-    (void)memcpy(s_download.payload_id, payload_id, PAYLOAD_ID_SIZE);
     *target_slot_out = s_download.target_slot;
-    if (s_download.state == DOWNLOAD_STATE_READY)
-    {
-        s_download.state = DOWNLOAD_STATE_TRANSFERRING;
-    }
-    else if (s_download.state == DOWNLOAD_STATE_COMPLETE)
-    {
-        s_download.received = 0U;
-        s_download.next_block_sequence_counter = 0x01U;
-        s_download.state = DOWNLOAD_STATE_TRANSFERRING;
-    }
+    s_download.state = DOWNLOAD_STATE_TRANSFERRING;
     return DOWNLOAD_RESULT_OK;
 }
 

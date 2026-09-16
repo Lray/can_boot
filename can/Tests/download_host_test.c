@@ -314,27 +314,20 @@ static void test_new_prepare_requires_reset(void)
     assert(Download_Exit() == DOWNLOAD_RESULT_OK);
 }
 
-static void test_transfer_restarts_after_exit(void)
+static void test_begin_after_exit_is_rejected(void)
 {
     uint8_t payload_id[PAYLOAD_ID_SIZE] = {0};
-    uint8_t other_payload_id[PAYLOAD_ID_SIZE] = {0};
     uint8_t target_slot = SLOT_INVALID;
 
     reset_flash();
     fill_id(payload_id, 0x41U);
-    fill_id(other_payload_id, 0x42U);
     begin_download(payload_id, FLASH_PAGE_SIZE_BYTES, &target_slot);
     transfer_bytes(FLASH_PAGE_SIZE_BYTES);
     assert(Download_Exit() == DOWNLOAD_RESULT_OK);
 
-    assert(Download_Begin(other_payload_id,
-                          FLASH_PAGE_SIZE_BYTES,
-                          &target_slot) == DOWNLOAD_RESULT_SEQUENCE_ERROR);
     assert(Download_Begin(payload_id,
                           FLASH_PAGE_SIZE_BYTES,
-                          &target_slot) == DOWNLOAD_RESULT_OK);
-    transfer_bytes(FLASH_PAGE_SIZE_BYTES);
-    assert(Download_Exit() == DOWNLOAD_RESULT_OK);
+                          &target_slot) == DOWNLOAD_RESULT_SEQUENCE_ERROR);
 }
 
 int main(void)
@@ -343,6 +336,6 @@ int main(void)
     test_repeated_prepare_is_rejected();
     test_transfer_rejects_out_of_range();
     test_new_prepare_requires_reset();
-    test_transfer_restarts_after_exit();
+    test_begin_after_exit_is_rejected();
     return 0;
 }

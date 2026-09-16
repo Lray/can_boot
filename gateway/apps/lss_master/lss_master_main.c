@@ -1,5 +1,5 @@
 #include "305/CO_LSSmaster.h"
-#include "lss_assignment.h"
+#include "lss_runtime.h"
 
 #include <errno.h>
 #include <inttypes.h>
@@ -8,7 +8,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
-#include <time.h>
 #include <unistd.h>
 
 typedef enum {
@@ -28,7 +27,8 @@ typedef struct {
 } operation_t;
 
 static CO_LSSmaster_return_t
-callOperation(CO_LSSmaster_t* master, operation_t* operation, uint32_t elapsedUs) {
+callOperation(CO_LSSmaster_t* master, uint32_t elapsedUs, void* context) {
+    operation_t* operation = context;
     switch (operation->kind) {
         case OP_FASTSCAN: return CO_LSSmaster_IdentifyFastscan(master, elapsedUs, operation->fastscan);
         case OP_SELECT: return CO_LSSmaster_swStateSelect(master, elapsedUs, operation->address);
@@ -38,47 +38,6 @@ callOperation(CO_LSSmaster_t* master, operation_t* operation, uint32_t elapsedUs
         case OP_STORE: return CO_LSSmaster_configureStore(master, elapsedUs);
     }
     return CO_LSSmaster_ILLEGAL_ARGUMENT;
-}
-
-static uint32_t
-elapsedUs(const struct timespec* before, const struct timespec* after) {
-    uint64_t elapsed = (uint64_t)(after->tv_sec - before->tv_sec) * UINT64_C(1000000);
-    long nanoseconds = after->tv_nsec - before->tv_nsec;
-    if (nanoseconds < 0) {
-        elapsed -= UINT64_C(1000000);
-        nanoseconds += 1000000000L;
-    }
-    elapsed += (uint64_t)nanoseconds / UINT64_C(1000);
-    return elapsed > UINT32_MAX ? UINT32_MAX : (uint32_t)elapsed;
-}
-
-static CO_LSSmaster_return_t
-runOperation(CO_LSSmaster_t* master, CO_CANmodule_t* module, int epollFd, operation_t* operation) {
-    struct timespec previous;
-    if (clock_gettime(CLOCK_MONOTONIC, &previous) != 0) {
-        return CO_LSSmaster_SCAN_FAILED;
-    }
-
-    CO_LSSmaster_return_t result = callOperation(master, operation, 0);
-    while (result == CO_LSSmaster_WAIT_SLAVE) {
-        struct epoll_event events[4];
-        int count = epoll_wait(epollFd, events, 4, 10);
-        if (count < 0 && errno != EINTR) {
-            return CO_LSSmaster_SCAN_FAILED;
-        }
-        for (int i = 0; i < count; i++) {
-            (void)CO_CANrxFromEpoll(module, &events[i], NULL, NULL);
-        }
-        CO_CANmodule_process(module);
-
-        struct timespec now;
-        if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
-            return CO_LSSmaster_SCAN_FAILED;
-        }
-        result = callOperation(master, operation, elapsedUs(&previous, &now));
-        previous = now;
-    }
-    return result;
 }
 
 static bool
@@ -179,7 +138,7 @@ main(int argc, char* argv[]) {
         operation.address = &address;
     }
 
-    CO_LSSmaster_return_t lssResult = runOperation(&master, &module, epollFd, &operation);
+    CO_LSSmaster_return_t lssResult = lss_run_operation(&master, &module, epollFd, callOperation, &operation);
     if (lssResult != CO_LSSmaster_OK && lssResult != CO_LSSmaster_SCAN_FINISHED) {
         fprintf(stderr, "LSS selection failed: %d\n", lssResult);
         CO_CANmodule_disable(&module);
@@ -196,15 +155,15 @@ main(int argc, char* argv[]) {
 
     uint32_t previousNodeId = 0;
     operation = (operation_t){.kind = OP_INQUIRE_NODE_ID, .value = &previousNodeId};
-    lssResult = runOperation(&master, &module, epollFd, &operation);
+    lssResult = lss_run_operation(&master, &module, epollFd, callOperation, &operation);
     if (lssResult == CO_LSSmaster_OK) {
         printf("Current node-ID: %" PRIu32 "\n", previousNodeId);
         operation = (operation_t){.kind = OP_CONFIGURE_NODE_ID, .nodeId = (uint8_t)nodeId};
-        lssResult = runOperation(&master, &module, epollFd, &operation);
+        lssResult = lss_run_operation(&master, &module, epollFd, callOperation, &operation);
     }
     if (lssResult == CO_LSSmaster_OK) {
         operation = (operation_t){.kind = OP_STORE};
-        lssResult = runOperation(&master, &module, epollFd, &operation);
+        lssResult = lss_run_operation(&master, &module, epollFd, callOperation, &operation);
     }
 
     CO_LSSmaster_return_t deselectResult = CO_LSSmaster_swStateDeselect(&master);
@@ -215,14 +174,7 @@ main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
-    if (lss_assignment_store(&address, (uint8_t)nodeId) != 0) {
-        fprintf(stderr, "LSS assignment persistence failed\n");
-        CO_CANmodule_disable(&module);
-        close(epollFd);
-        return EXIT_FAILURE;
-    }
-
-    printf("Configured, stored and assigned node-ID %" PRIu32 "\n", nodeId);
+    printf("Configured and stored node-ID %" PRIu32 "\n", nodeId);
     CO_CANmodule_disable(&module);
     close(epollFd);
     return EXIT_SUCCESS;

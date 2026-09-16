@@ -115,7 +115,7 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
         network = CAN_NETWORK_H.read_text(encoding="utf-8")
         heartbeat_init = re.search(
             r"s_heartbeat_tx_buffer\s*=\s*CO_CANtxBufferInit\("
-            r".*?CAN_ID_HEARTBEAT\(node_id\),\s*false,\s*(?P<dlc>\d+U)",
+            r".*?CAN_ID_HEARTBEAT\(s_lss_pending_node_id\),\s*false,\s*(?P<dlc>\d+U)",
             main,
             re.DOTALL,
         )
@@ -126,12 +126,13 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
         self.assertIn("#define CAN_HEARTBEAT_STATE_ALIVE 0x05U", network)
         self.assertIn("#define CAN_HEARTBEAT_PERIOD_MS 1000U", network)
         self.assertIn("#define CAN_HEARTBEAT_TIMEOUT_MS 3000U", network)
-        self.assertIn("not a complete CANopen NMT Heartbeat protocol", network)
+        self.assertIn("without implementing NMT", network)
         self.assertIn(
             "s_heartbeat_tx_buffer->data[0] = CAN_HEARTBEAT_STATE_ALIVE;",
             main,
         )
         self.assertNotIn("SendStartupCheckpoint", main)
+        self.assertNotIn("ConfigureNode" "CanIds", main)
 
     def test_can_error_processing_is_owned_by_main(self):
         main = MAIN_C.read_text(encoding="utf-8")

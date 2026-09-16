@@ -10,7 +10,7 @@
 #include <unistd.h>
 
 #include "isotp_channel.h"
-#include "lss_assignment.h"
+#include "lss_runtime.h"
 #include "package_input.h"
 #include "package_metadata.h"
 #include "profile.h"
@@ -199,7 +199,7 @@ int mcu_update_run_job(const char *job_dir, const McuUpdateConfig_t *config,
     {
         goto out;
     }
-    if (lss_assignment_find(&package.identity, &node_id) != 0)
+    if (lss_resolve_node_id(config->can_ifname, &package.identity, &node_id) != 0)
     {
         goto out;
     }

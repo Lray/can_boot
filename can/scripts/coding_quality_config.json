@@ -271,6 +271,7 @@
         "uds_protocol.h",
         "boot_observation.h",
         "download.h",
+        "factory_identity.h",
         "image_confirm.h",
         "sysflash.h",
         "uds_msg.h"

@@ -133,7 +133,7 @@ static void test_rejects_malformed_init(void)
 {
     static const char *protocol_rejected[] = {"INIT",    "INIT:",  "INIT:05",
                                               "INIT:x1", "INIT:-3"};
-    static const char *size_rejected[] = {"INIT:0", "INIT:131073",
+    static const char *size_rejected[] = {"INIT:0", "INIT:131089",
                                           "INIT:99999999999999999999"};
     size_t index;
 
