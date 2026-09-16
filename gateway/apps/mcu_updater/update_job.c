@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include "isotp_channel.h"
+#include "lss_assignment.h"
 #include "package_input.h"
 #include "package_metadata.h"
 #include "profile.h"
@@ -179,6 +180,7 @@ int mcu_update_run_job(const char *job_dir, const McuUpdateConfig_t *config,
     McuUpdateWatchdog_t watchdog;
     char image_path[PATH_MAX] = {0};
     int input_fd = -1;
+    uint8_t node_id = 0u;
     int rc = MCU_UPDATE_EXIT_PACKAGE_POLICY;
 
     if (job_dir == NULL || config == NULL || result_out == NULL ||
@@ -194,6 +196,10 @@ int mcu_update_run_job(const char *job_dir, const McuUpdateConfig_t *config,
     input_fd = open_input_directory(job_dir);
     if (input_fd < 0 || fixed_image_path(input_fd, image_path, sizeof(image_path)) != 0 ||
         ota_package_load_validate(image_path, &package) != 0)
+    {
+        goto out;
+    }
+    if (lss_assignment_find(&package.identity, &node_id) != 0)
     {
         goto out;
     }
@@ -213,7 +219,12 @@ int mcu_update_run_job(const char *job_dir, const McuUpdateConfig_t *config,
                             ? config->signer_timeout_ms
                             : TOKEN_SIGNER_DEFAULT_TIMEOUT_MS;
 
-    isotp_channel_default_config(&reconnect.config);
+    reconnect.config = (IsotpChannelConfig){
+        .request_id = CAN_ID_UDS_REQUEST(node_id),
+        .response_id = CAN_ID_UDS_RESPONSE(node_id),
+        .block_size = ISOTP_BLOCK_SIZE,
+        .stmin_raw = ISOTP_STMIN_MS,
+    };
     reconnect.channel = &channel;
     reconnect.ifname = config->can_ifname;
     if (isotp_channel_open(&channel, config->can_ifname, &reconnect.config) != 0)

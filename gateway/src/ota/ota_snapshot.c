@@ -3,6 +3,7 @@
 #include <time.h>
 
 #include "byte_order.h"
+#include "package_input.h"
 #include "profile.h"
 #include "util.h"
 
@@ -11,10 +12,20 @@
 
 static int read_snapshot(UdsClient *client, McuSnapshot_t *snapshot_out)
 {
-    uint8_t value[8] = {0};
+    uint8_t value[OTA_ENVELOPE_IDENTITY_SIZE] = {0};
     size_t value_len = 0u;
     uint64_t start = util_monotonic_ms();
     int rc = 0;
+
+    rc = uds_read_did(client, DID_LSS_IDENTITY, value, sizeof(value), &value_len);
+    if (rc != 0 || value_len != OTA_ENVELOPE_IDENTITY_SIZE)
+    {
+        return rc != 0 ? rc : UDS_ERR_MALFORMED_RESPONSE;
+    }
+    snapshot_out->identity.identity.vendorID = byte_order_get_u32_be(value);
+    snapshot_out->identity.identity.productCode = byte_order_get_u32_be(value + 4u);
+    snapshot_out->identity.identity.revisionNumber = byte_order_get_u32_be(value + 8u);
+    snapshot_out->identity.identity.serialNumber = byte_order_get_u32_be(value + 12u);
 
     rc = uds_read_did(client, DID_ACTIVE_SLOT, value, sizeof(value),
                       &value_len);
@@ -70,7 +81,8 @@ int read_snapshot_twice(UdsClient *client, UdsReconnectFn_t reconnect,
                 return UDS_ERR_TIMEOUT;
             }
             rc = read_snapshot(client, &second);
-            if (rc == 0 && first.active_slot == second.active_slot &&
+            if (rc == 0 && CO_LSS_ADDRESS_EQUAL(first.identity, second.identity) &&
+                first.active_slot == second.active_slot &&
                 mcuboot_image_version_equal(&first.app_version,
                                             &second.app_version) &&
                 first.confirm_result == second.confirm_result)

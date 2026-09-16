@@ -115,14 +115,14 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
         network = CAN_NETWORK_H.read_text(encoding="utf-8")
         heartbeat_init = re.search(
             r"s_heartbeat_tx_buffer\s*=\s*CO_CANtxBufferInit\("
-            r".*?CAN_ID_HEARTBEAT,\s*false,\s*(?P<dlc>\d+U)",
+            r".*?CAN_ID_HEARTBEAT\(node_id\),\s*false,\s*(?P<dlc>\d+U)",
             main,
             re.DOTALL,
         )
 
         self.assertIsNotNone(heartbeat_init, "heartbeat TX buffer init not found")
         self.assertEqual(heartbeat_init.group("dlc"), "1U")
-        self.assertIn("#define CAN_ID_HEARTBEAT 0x700U", network)
+        self.assertIn("#define CAN_ID_HEARTBEAT(node_id) (0x700U + (node_id))", network)
         self.assertIn("#define CAN_HEARTBEAT_STATE_ALIVE 0x05U", network)
         self.assertIn("#define CAN_HEARTBEAT_PERIOD_MS 1000U", network)
         self.assertIn("#define CAN_HEARTBEAT_TIMEOUT_MS 3000U", network)

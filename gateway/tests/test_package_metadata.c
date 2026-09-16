@@ -26,21 +26,29 @@ static void test_generated_mcuboot_image_validates_and_derives_image_facts(void)
 {
     OtaPackage_t package;
     uint8_t digest[PACKAGE_SHA256_SIZE];
-    uint8_t *image = (uint8_t *)calloc(DEFAULT_SLOT_SIZE, 1u);
+    uint8_t *image = (uint8_t *)calloc(DEFAULT_SLOT_SIZE + OTA_ENVELOPE_IDENTITY_SIZE, 1u);
     char temporary[] = "/tmp/package-image-valid-XXXXXX";
     int output_fd = mkstemp(temporary);
 
     assert(image != NULL);
     assert(output_fd >= 0);
-    image[0] = 0x3du;
-    image[1] = 0xb8u;
-    image[2] = 0xf3u;
-    image[3] = 0x96u;
-    image[8] = 32u;
-    image[20] = 1u;
-    image[21] = 2u;
-    image[22] = 46u;
-    write_all(output_fd, image, DEFAULT_SLOT_SIZE);
+    image[0] = 0x01u;
+    image[3] = 0x02u;
+    image[4] = 0x03u;
+    image[7] = 0x04u;
+    image[8] = 0x05u;
+    image[11] = 0x06u;
+    image[12] = 0x07u;
+    image[15] = 0x08u;
+    image[16] = 0x3du;
+    image[17] = 0xb8u;
+    image[18] = 0xf3u;
+    image[19] = 0x96u;
+    image[24] = 32u;
+    image[36] = 1u;
+    image[37] = 2u;
+    image[38] = 46u;
+    write_all(output_fd, image, DEFAULT_SLOT_SIZE + OTA_ENVELOPE_IDENTITY_SIZE);
     assert(close(output_fd) == 0);
     assert(ota_package_load_validate(temporary, &package) == 0);
     assert(package.image_size == DEFAULT_SLOT_SIZE);
@@ -48,6 +56,12 @@ static void test_generated_mcuboot_image_validates_and_derives_image_facts(void)
     assert(package.image_version.iv_minor == 2u);
     assert(package.image_version.iv_revision == 46u);
     assert(package.image_version.iv_build_num == 0u);
+    assert(package.identity.identity.vendorID == 0x01000002u);
+    assert(package.identity.identity.productCode == 0x03000004u);
+    assert(package.identity.identity.revisionNumber == 0x05000006u);
+    assert(package.identity.identity.serialNumber == 0x07000008u);
+    assert(memcmp(package.image, image + OTA_ENVELOPE_IDENTITY_SIZE,
+                  DEFAULT_SLOT_SIZE) == 0);
     sha256_compute(package.image, package.image_size, digest);
     assert(memcmp(digest, package.image_sha256, PACKAGE_SHA256_SIZE) == 0);
     ota_package_release(&package);

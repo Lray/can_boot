@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+#include "305/CO_LSS.h"
 #include "shared/mcuboot_image_version.h"
 #include "uds_client.h"
 
@@ -11,6 +12,7 @@
 
 typedef struct
 {
+    CO_LSS_address_t identity;
     uint8_t active_slot;
     mcuboot_image_version_t app_version;
     uint8_t confirm_result;

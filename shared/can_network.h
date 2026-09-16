@@ -14,20 +14,21 @@
 #define CAN_BIT_RATE_KBIT 500U
 
 /* --- Classic CAN 11-bit identifiers --- */
-/*
- * Project-specific single-MCU heartbeat, designed after CANopen Heartbeat.
- * This is not a complete CANopen NMT Heartbeat protocol.  The product keeps
- * the fixed 0x700 identifier because it has no configurable Node-ID.
- */
-#define CAN_ID_HEARTBEAT 0x700U
+/* LSS assigns the active Node-ID. Unconfigured nodes expose LSS only. */
+#define CAN_NODE_ID_MIN 1U
+#define CAN_NODE_ID_MAX 127U
+/* Project heartbeat borrows CANopen's allocation without implementing NMT. */
+#define CAN_ID_HEARTBEAT(node_id) (0x700U + (node_id))
 #define CAN_HEARTBEAT_STATE_ALIVE 0x05U
 #define CAN_HEARTBEAT_PERIOD_MS 1000U
 /* Consumers decide online state from elapsed receive time, never counters. */
 #define CAN_HEARTBEAT_TIMEOUT_MS 3000U
-#define CAN_ID_UDS_REQUEST 0x7E0U
-#define CAN_ID_UDS_RESPONSE 0x7E8U
-/* Reserved proprietary broadcast from this MCU to the Gateway only. */
-#define CAN_ID_MCU_ULOG 0x6D0U
+/* Project ISO-TP allocation in otherwise unused default SDO ranges. */
+#define CAN_ID_UDS_REQUEST(node_id) (0x600U + (node_id))
+#define CAN_ID_UDS_RESPONSE(node_id) (0x580U + (node_id))
+/* Per-node proprietary log frames, disjoint from ISO-TP and heartbeat. */
+#define CAN_ID_MCU_ULOG(node_id) (0x680U + (node_id))
+#define CAN_ID_MCU_ULOG_FILTER 0x780U
 
 /* --- ISO-TP product profile (encoded using the ISO-TP wire format) --- */
 #define ISOTP_BLOCK_SIZE 8U

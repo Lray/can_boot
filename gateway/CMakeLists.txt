@@ -20,6 +20,7 @@ set(GATEWAY_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/package
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ota
     ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/CANopenNode
 )
 
 set(GATEWAY_CANOPEN_LINUX_DIR
@@ -52,7 +53,15 @@ target_compile_definitions(gateway-storage-linux PUBLIC _GNU_SOURCE CO_SINGLE_TH
 add_executable(gateway-lss-master
     apps/lss_master/lss_master_main.c
 )
-target_link_libraries(gateway-lss-master PRIVATE gateway-canopen-linux)
+add_library(gateway-lss-assignment STATIC
+    apps/lss_master/lss_assignment.c
+)
+target_include_directories(gateway-lss-assignment PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/lss_master
+    ${GATEWAY_INCLUDE_DIRS}
+)
+target_link_libraries(gateway-lss-assignment PUBLIC gateway-storage-linux)
+target_link_libraries(gateway-lss-master PRIVATE gateway-canopen-linux gateway-lss-assignment)
 
 add_library(gateway-byte-order STATIC
     src/codec/byte_order.c
@@ -187,6 +196,7 @@ target_include_directories(gateway-mcu-update-app PUBLIC
 target_compile_definitions(gateway-mcu-update-app PRIVATE _GNU_SOURCE)
 target_link_libraries(gateway-mcu-update-app
     PUBLIC gateway-mcu-update-engine
+    PRIVATE gateway-lss-assignment
     PRIVATE rt
 )
 

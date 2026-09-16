@@ -87,9 +87,20 @@ int ota_package_load_validate(const char *image_path, OtaPackage_t *package_out)
         return METADATA_ERR_INVALID_ARG;
     }
     memset(package_out, 0, sizeof(*package_out));
-    rc = read_regular_file(image_path, DEFAULT_SLOT_SIZE, &image, &image_len);
+    rc = read_regular_file(image_path, DEFAULT_SLOT_SIZE + OTA_ENVELOPE_IDENTITY_SIZE,
+                           &image, &image_len);
+    if (rc == 0 && image_len <= OTA_ENVELOPE_IDENTITY_SIZE)
+    {
+        rc = METADATA_ERR_IMAGE;
+    }
     if (rc == 0)
     {
+        package_out->identity.identity.vendorID = byte_order_get_u32_be(image);
+        package_out->identity.identity.productCode = byte_order_get_u32_be(image + 4u);
+        package_out->identity.identity.revisionNumber = byte_order_get_u32_be(image + 8u);
+        package_out->identity.identity.serialNumber = byte_order_get_u32_be(image + 12u);
+        image_len -= OTA_ENVELOPE_IDENTITY_SIZE;
+        memmove(image, image + OTA_ENVELOPE_IDENTITY_SIZE, image_len);
         rc = read_image_version(image, image_len, &package_out->image_version);
     }
     if (rc != 0)

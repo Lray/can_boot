@@ -90,7 +90,7 @@ static void ResetTest(void)
     s_time_us = 0U;
     s_send_result = ISOTP_RET_OK;
     isotp_init_link(&s_link,
-                    CAN_ID_UDS_RESPONSE,
+                    CAN_ID_UDS_RESPONSE(CAN_NODE_ID_MIN),
                     s_send_buffer,
                     sizeof(s_send_buffer),
                     s_receive_buffer,
@@ -122,7 +122,7 @@ static void TestReceiveMultiFrameUsesProductFlowControl(void)
     ResetTest();
     isotp_on_can_message(&s_link, first_frame, sizeof(first_frame));
     assert(s_sent_count == 1U);
-    assert(s_sent_frames[0].id == CAN_ID_UDS_RESPONSE);
+    assert(s_sent_frames[0].id == CAN_ID_UDS_RESPONSE(CAN_NODE_ID_MIN));
     assert(s_sent_frames[0].length == ISO_TP_MAX_CAN_FRAME_SIZE);
     assert(s_sent_frames[0].data[0] == 0x30U);
     assert(s_sent_frames[0].data[1] == ISOTP_BLOCK_SIZE);

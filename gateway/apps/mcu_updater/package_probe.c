@@ -10,7 +10,7 @@ int main(int argc, char **argv)
 
     if (argc != 2)
     {
-        fprintf(stderr, "usage: %s image.bin\n", argv[0]);
+        fprintf(stderr, "usage: %s remote-artifact.bin\n", argv[0]);
         return 2;
     }
     rc = ota_package_load_validate(argv[1], &package);
@@ -20,7 +20,11 @@ int main(int argc, char **argv)
         return 1;
     }
     fprintf(stderr,
-            "package-probe: VALID image_bytes=%u version=%u.%u.%u.%lu\n",
+            "package-probe: VALID identity=%08X:%08X:%08X:%08X image_bytes=%u version=%u.%u.%u.%lu\n",
+            package.identity.identity.vendorID,
+            package.identity.identity.productCode,
+            package.identity.identity.revisionNumber,
+            package.identity.identity.serialNumber,
             package.image_size,
             package.image_version.iv_major, package.image_version.iv_minor,
             package.image_version.iv_revision,

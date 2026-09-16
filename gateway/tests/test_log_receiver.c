@@ -13,7 +13,7 @@ static struct can_frame make_frame(
     struct can_frame frame = {0};
 
     assert(payload_length <= MCU_ULOG_FRAME_PAYLOAD_SIZE);
-    frame.can_id = MCU_ULOG_CAN_ID;
+    frame.can_id = MCU_ULOG_CAN_ID_MIN;
     frame.can_dlc = (uint8_t)(MCU_ULOG_FRAME_HEADER_SIZE + payload_length);
     frame.data[0] = control;
     if (payload_length > 0u) {
@@ -126,6 +126,17 @@ static void test_frame_decoder_rejects_invalid_length(void)
     assert(log_frame_decode(&frame, &decoded) == LOG_FRAME_MALFORMED);
 }
 
+static void test_frame_decoder_accepts_assigned_node_ids_only(void)
+{
+    McuUlogFrame_t decoded = {0};
+    struct can_frame frame = make_frame(0xC0u, "x", 1u);
+
+    frame.can_id = MCU_ULOG_CAN_ID_MAX;
+    assert(log_frame_decode(&frame, &decoded) == LOG_FRAME_VALID);
+    frame.can_id = MCU_ULOG_CAN_ID_MIN - 1u;
+    assert(log_frame_decode(&frame, &decoded) == LOG_FRAME_OTHER_CAN_ID);
+}
+
 int main(void)
 {
     test_reassembles_complete_record();
@@ -133,5 +144,6 @@ int main(void)
     test_new_start_abandons_previous_record();
     test_accepts_mcu_protocol_maximum_record();
     test_frame_decoder_rejects_invalid_length();
+    test_frame_decoder_accepts_assigned_node_ids_only();
     return 0;
 }

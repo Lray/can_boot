@@ -12,6 +12,7 @@ usage:
       --version MAJOR.MINOR[.REVISION][+BUILD] --security-counter N \
       --mcuboot-key /secure/root-ec-p256.pem --imgtool /path/to/imgtool \
       --swu-key /secure/swu-release-private.pem --swu-public-key /safe/swu-release-public.pem \
+      --vendor-id N --product-code N --revision-number N --serial-number N \
       --out-dir /abs/new-release-dir [--swupdate /path/to/swupdate]
 
 This is the only release builder: it delegates MCU image signing to the
@@ -45,6 +46,25 @@ require_private_key()
         fail "${label} must be owned by the invoking user and not group/world readable"
 }
 
+require_u32()
+{
+    [[ "$2" =~ ^[0-9]+$ && $((10#$2)) -le 4294967295 ]] || fail "$1 must be an unsigned 32-bit integer"
+}
+
+write_envelope()
+{
+    python3 - "$1" "$2" "$vendor_id" "$product_code" "$revision_number" "$serial_number" <<'PY'
+import shutil
+import struct
+import sys
+
+source, destination, *identity = sys.argv[1:]
+with open(source, "rb") as image, open(destination, "wb") as artifact:
+    artifact.write(struct.pack(">IIII", *(int(value) for value in identity)))
+    shutil.copyfileobj(image, artifact)
+PY
+}
+
 payload=''
 target_slot=''
 version=''
@@ -55,6 +75,10 @@ swu_key=''
 swu_public_key=''
 out_dir=''
 swupdate_bin='swupdate'
+vendor_id=''
+product_code=''
+revision_number=''
+serial_number=''
 
 while (($#)); do
     case "$1" in
@@ -66,6 +90,10 @@ while (($#)); do
         --imgtool) imgtool="${2:?missing --imgtool value}"; shift 2 ;;
         --swu-key) swu_key="${2:?missing --swu-key value}"; shift 2 ;;
         --swu-public-key) swu_public_key="${2:?missing --swu-public-key value}"; shift 2 ;;
+        --vendor-id) vendor_id="${2:?missing --vendor-id value}"; shift 2 ;;
+        --product-code) product_code="${2:?missing --product-code value}"; shift 2 ;;
+        --revision-number) revision_number="${2:?missing --revision-number value}"; shift 2 ;;
+        --serial-number) serial_number="${2:?missing --serial-number value}"; shift 2 ;;
         --out-dir) out_dir="${2:?missing --out-dir value}"; shift 2 ;;
         --swupdate) swupdate_bin="${2:?missing --swupdate value}"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
@@ -75,7 +103,8 @@ done
 
 [[ -n "${payload}" && -n "${target_slot}" && -n "${version}" && -n "${security_counter}" &&
    -n "${mcuboot_key}" && -n "${imgtool}" && -n "${swu_key}" &&
-   -n "${swu_public_key}" && -n "${out_dir}" ]] || { usage >&2; fail 'missing required argument'; }
+   -n "${swu_public_key}" && -n "${vendor_id}" && -n "${product_code}" &&
+   -n "${revision_number}" && -n "${serial_number}" && -n "${out_dir}" ]] || { usage >&2; fail 'missing required argument'; }
 [[ "${target_slot}" =~ ^[01]$ ]] || fail 'target slot must be 0 or 1'
 [[ "${security_counter}" =~ ^[0-9]+$ ]] || fail 'security counter must be an unsigned decimal value'
 [[ "${version}" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?(\+[0-9]+)?$ ]] || fail 'invalid MCUboot version'
@@ -86,6 +115,10 @@ require_regular_file payload "${payload}"
 require_private_key MCUboot-signing-key "${mcuboot_key}"
 require_private_key SWU-signing-key "${swu_key}"
 require_regular_file SWU-public-key "${swu_public_key}"
+require_u32 vendor-id "${vendor_id}"
+require_u32 product-code "${product_code}"
+require_u32 revision-number "${revision_number}"
+require_u32 serial-number "${serial_number}"
 command -v openssl >/dev/null 2>&1 || fail 'openssl is required'
 command -v cpio >/dev/null 2>&1 || fail 'cpio is required'
 command -v "${swupdate_bin}" >/dev/null 2>&1 || fail 'swupdate checker is required'
@@ -104,11 +137,14 @@ python3 "${repo_root}/can/scripts/make_mcu_mcuboot_bundle.py" \
     --out-dir "${out_dir}/mcuboot"
 
 readonly image_path="${out_dir}/mcuboot/image.bin"
-readonly image_size="$(stat -c '%s' -- "${image_path}")"
-readonly image_sha256="$(sha256sum -- "${image_path}" | awk '{print $1}')"
 readonly stage_dir="${out_dir}/stage"
 readonly swu_path="${out_dir}/t527-mcu-slot${target_slot}-v${version}.swu"
 readonly swu_temp="${swu_path}.partial"
+
+write_envelope "${image_path}" "${stage_dir}/image.bin"
+chmod 0400 "${stage_dir}/image.bin"
+readonly image_size="$(stat -c '%s' -- "${stage_dir}/image.bin")"
+readonly image_sha256="$(sha256sum -- "${stage_dir}/image.bin" | awk '{print $1}')"
 
 printf '%s\n' \
     'software = {' \
@@ -129,8 +165,6 @@ openssl dgst -sha256 -sign "${swu_key}" -sigopt rsa_padding_mode:pss \
     "${stage_dir}/sw-description"
 openssl dgst -sha256 -verify "${swu_public_key}" -signature "${stage_dir}/sw-description.sig" \
     -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:-2 "${stage_dir}/sw-description" >/dev/null
-install -m 0400 -- "${image_path}" "${stage_dir}/image.bin"
-
 (
     cd -- "${stage_dir}"
     printf '%s\n' sw-description sw-description.sig image.bin | cpio -o -H crc > "${swu_temp}"

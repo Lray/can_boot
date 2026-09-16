@@ -61,7 +61,7 @@ OtaState_t ota_executor_run(const OtaExecutorConfig_t *config,
                              config->reconnect_ctx, start + precheck_window, 0,
                              start + precheck_window,
                              &result_out->before);
-    if (rc != 0)
+    if (rc != 0 || !CO_LSS_ADDRESS_EQUAL(result_out->before.identity, package->identity))
     {
         return OTA_STATE_PACKAGE_VALIDATED;
     }
@@ -121,6 +121,10 @@ OtaState_t ota_executor_run(const OtaExecutorConfig_t *config,
     if (rc != 0)
     {
         return OTA_STATE_RECONNECTED;
+    }
+    if (!CO_LSS_ADDRESS_EQUAL(result_out->after.identity, package->identity))
+    {
+        return OTA_STATE_POST_RESET_CHECKED;
     }
     return classify_post_reset(package, &result_out->after, target_slot);
 }

@@ -1,4 +1,5 @@
 #include "305/CO_LSSmaster.h"
+#include "lss_assignment.h"
 
 #include <errno.h>
 #include <inttypes.h>
@@ -214,7 +215,14 @@ main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
-    printf("Configured and stored node-ID %" PRIu32 "\n", nodeId);
+    if (lss_assignment_store(&address, (uint8_t)nodeId) != 0) {
+        fprintf(stderr, "LSS assignment persistence failed\n");
+        CO_CANmodule_disable(&module);
+        close(epollFd);
+        return EXIT_FAILURE;
+    }
+
+    printf("Configured, stored and assigned node-ID %" PRIu32 "\n", nodeId);
     CO_CANmodule_disable(&module);
     close(epollFd);
     return EXIT_SUCCESS;

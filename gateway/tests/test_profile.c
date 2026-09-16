@@ -5,12 +5,17 @@
 
 int main(void)
 {
-    assert(CAN_ID_HEARTBEAT == 0x700u);
+    assert(CAN_ID_HEARTBEAT(1u) == 0x701u);
+    assert(CAN_ID_HEARTBEAT(CAN_NODE_ID_MAX) == 0x77Fu);
     assert(CAN_HEARTBEAT_STATE_ALIVE == 0x05u);
     assert(CAN_HEARTBEAT_PERIOD_MS == 1000u);
     assert(CAN_HEARTBEAT_TIMEOUT_MS == 3000u);
-    assert(CAN_ID_UDS_REQUEST == 0x7E0u);
-    assert(CAN_ID_UDS_RESPONSE == 0x7E8u);
+    assert(CAN_ID_UDS_REQUEST(1u) == 0x601u);
+    assert(CAN_ID_UDS_RESPONSE(1u) == 0x581u);
+    assert(CAN_ID_UDS_REQUEST(CAN_NODE_ID_MAX) == 0x67Fu);
+    assert(CAN_ID_UDS_RESPONSE(CAN_NODE_ID_MAX) == 0x5FFu);
+    assert(CAN_ID_MCU_ULOG(1u) == 0x681u);
+    assert(CAN_ID_MCU_ULOG(CAN_NODE_ID_MAX) == 0x6FFu);
     assert(CAN_FUNC_ID == 0x7DFu);
     assert(CAN_BITRATE == 500000u);
     assert(ISOTP_BLOCK_SIZE == 8u);
