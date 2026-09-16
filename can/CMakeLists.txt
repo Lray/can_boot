@@ -100,7 +100,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     security/security_token.c
     security/security_token_cose.c
     security/security_crypto_port.c
-    transport/can_driver_stm32.c
+    transport/CO_driver_STM32.c
     transport/isotp_stm32.c
     transport/ulog_can.c
     transport/ulog_can_wire.c
@@ -116,7 +116,6 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/boot
     ${CMAKE_CURRENT_SOURCE_DIR}/download
     ${CMAKE_CURRENT_SOURCE_DIR}/identity
-    ${CMAKE_CURRENT_SOURCE_DIR}/lss
     ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/CANopenNode
     ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/CanOpenSTM32/CANopenNode_STM32
     ${CMAKE_CURRENT_SOURCE_DIR}/security

@@ -14,7 +14,9 @@ CAN_IOC = ROOT / "Can.ioc"
 CUBEMX_REPAIR = ROOT / "scripts" / "repair_cubemx_generated_boundaries.py"
 FDCAN_C = ROOT / "Core" / "Src" / "fdcan.c"
 FDCAN_H = ROOT / "Core" / "Inc" / "fdcan.h"
-CAN_DRIVER_C = ROOT / "transport" / "can_driver_stm32.c"
+CAN_DRIVER_C = ROOT / "transport" / "CO_driver_STM32.c"
+CAN_DRIVER_H = ROOT.parent / "third_party" / "CANopenNode" / "301" / "CO_driver.h"
+CAN_DRIVER_TARGET_H = ROOT / "transport" / "CO_driver_target.h"
 GPIO_C = ROOT / "Core" / "Src" / "gpio.c"
 GPIO_H = ROOT / "Core" / "Inc" / "gpio.h"
 MAIN_C = ROOT / "Core" / "Src" / "main.c"
@@ -71,7 +73,7 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
 
         main = MAIN_C.read_text(encoding="utf-8")
         self.assertIn("static void OtaThreadEntry", main)
-        self.assertIn("can_rx_buffer_init", main)
+        self.assertIn("CO_CANrxBufferInit", main)
         self.assertIn("PollUdsCanFrames", main)
         self.assertIn("isotp_on_can_message", main)
         self.assertNotIn("s_can_module.CANerrorStatus |=", main)
@@ -112,7 +114,7 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
         main = MAIN_C.read_text(encoding="utf-8")
         network = CAN_NETWORK_H.read_text(encoding="utf-8")
         heartbeat_init = re.search(
-            r"s_heartbeat_tx_buffer\s*=\s*can_tx_buffer_init\("
+            r"s_heartbeat_tx_buffer\s*=\s*CO_CANtxBufferInit\("
             r".*?CAN_ID_HEARTBEAT,\s*false,\s*(?P<dlc>\d+U)",
             main,
             re.DOTALL,
@@ -134,13 +136,12 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
     def test_can_error_processing_is_owned_by_main(self):
         main = MAIN_C.read_text(encoding="utf-8")
         can_driver = CAN_DRIVER_C.read_text(encoding="utf-8")
-        can_header = (ROOT / "transport" / "can_driver.h").read_text(
-            encoding="utf-8"
-        )
+        can_header = CAN_DRIVER_H.read_text(encoding="utf-8")
+        can_target = CAN_DRIVER_TARGET_H.read_text(encoding="utf-8")
 
         # Bus-off is left to FDCAN hardware auto-recovery; the main loop only
         # polls the PSR register and keeps the classified error status fresh.
-        self.assertIn("can_module_process(&s_can_module)", main)
+        self.assertIn("CO_CANmodule_process(&s_can_module)", main)
         self.assertIn("rt_thread_mdelay(1)", main)
         self.assertNotIn("g_can_recovery_sem", main)
         self.assertNotIn("rt_sem_take", main)
@@ -155,13 +156,15 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
         self.assertNotIn("rt_thread_init", can_driver)
         self.assertNotIn("rt_thread_startup", can_driver)
         self.assertIn("CANerrorStatus", can_driver)
-        self.assertIn("can_module_process", can_driver)
+        self.assertIn("CO_CANmodule_process", can_driver)
         self.assertIn("FDCAN_PSR_BO", can_driver)
-        self.assertIn("CAN_ERRTX_BUS_OFF", can_driver)
+        self.assertIn("CO_CAN_ERRTX_BUS_OFF", can_driver)
 
-        self.assertIn("void can_module_process(can_module_t* CANmodule)", can_header)
-        self.assertIn("can_return_error_t", can_header)
-        self.assertIn("CAN_ERRTX_BUS_OFF", can_header)
+        self.assertIn("void CO_CANmodule_process(CO_CANmodule_t* CANmodule)", can_header)
+        self.assertIn("CO_ReturnError_t", can_header)
+        self.assertIn("CO_CAN_ERRTX_BUS_OFF", can_header)
+        self.assertIn("CO_LOCK_CAN_SEND", can_target)
+        self.assertIn("CO_LOCK_GENERIC", can_target)
         self.assertNotIn("s_can_rx_count", can_driver)
         self.assertNotIn("s_can_tx_count", can_driver)
         self.assertNotIn("s_can_error_count", can_driver)
@@ -171,6 +174,29 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
         self.assertNotIn("CAN_Recover", can_header)
         self.assertNotIn("CAN_UpdateErrorStatus", can_header)
         self.assertNotIn("CAN_TakeErrorEvent", can_header)
+
+    def test_application_uses_only_official_can_driver_abi(self):
+        legacy_api = re.compile(
+            r"\b(?:can_module_t|can_rx_t|can_tx_t|can_rx_msg_t|"
+            r"can_return_error_t|can_send|can_tx_buffer_init|"
+            r"can_rx_buffer_init|can_module_init|can_module_disable|"
+            r"can_set_configuration_mode|can_set_normal_mode|"
+            r"can_clear_pending_sync_pdos|can_module_process)\b"
+        )
+        sources = [MAIN_C]
+        sources.extend((ROOT / "transport").glob("*.[ch]"))
+        sources.extend((ROOT / "Tests").glob("*.c"))
+
+        for source in sources:
+            self.assertNotRegex(
+                source.read_text(encoding="utf-8"),
+                legacy_api,
+                f"legacy CAN driver ABI remains in {source}",
+            )
+
+        self.assertFalse((ROOT / "transport" / "can_driver.h").exists())
+        self.assertFalse((ROOT / "lss" / "301" / "CO_driver.h").exists())
+        self.assertTrue(CAN_DRIVER_H.exists())
 
     def test_fdcan_routes_fail_stop_through_main_error_handler(self):
         fdcan_header = FDCAN_H.read_text(encoding="utf-8")
@@ -228,7 +254,7 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
     def test_can_starts_before_flash_backed_startup_confirm(self):
         main = MAIN_C.read_text(encoding="utf-8")
 
-        can_start = main.find("can_set_normal_mode(")
+        can_start = main.find("CO_CANsetNormalMode(")
         confirm = main.find("ImageConfirm_RunStartupSelfCheck(startup_health_ok)")
         self.assertNotEqual(can_start, -1, "main must start FDCAN")
         self.assertNotEqual(confirm, -1, "main must run D12 startup confirm")
@@ -254,7 +280,7 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
     def test_uart_debug_init_does_not_block_can_availability_probe(self):
         main = MAIN_C.read_text(encoding="utf-8")
 
-        can_start = main.find("can_set_normal_mode(")
+        can_start = main.find("CO_CANsetNormalMode(")
         uart_init = main.find("MX_USART1_UART_Init()")
         self.assertNotEqual(can_start, -1, "main must start FDCAN")
         self.assertNotEqual(uart_init, -1, "debug UART init must remain explicit")

@@ -5,9 +5,14 @@
 
 #include "305/CO_LSSslave.h"
 
-static can_rx_t s_rx[1];
-static can_tx_t s_tx[1];
-static can_module_t s_can = {s_rx, 1U, s_tx, 1U};
+static CO_CANrx_t s_rx[1];
+static CO_CANtx_t s_tx[1];
+static CO_CANmodule_t s_can = {
+    .rxArray = s_rx,
+    .rxSize = 1U,
+    .txArray = s_tx,
+    .txSize = 1U,
+};
 static uint8_t s_response[8];
 static unsigned int s_response_count;
 static unsigned int s_store_count;
@@ -15,8 +20,8 @@ static uint8_t s_stored_node_id;
 static uint16_t s_stored_bit_rate;
 static bool s_store_result = true;
 
-can_return_error_t can_rx_buffer_init(
-    can_module_t *module,
+CO_ReturnError_t CO_CANrxBufferInit(
+    CO_CANmodule_t *module,
     uint16_t index,
     uint16_t ident,
     uint16_t mask,
@@ -28,22 +33,22 @@ can_return_error_t can_rx_buffer_init(
     if ((module == NULL) || (index >= module->rxSize) ||
         (callback == NULL))
     {
-        return ERROR_ILLEGAL_ARGUMENT;
+        return CO_ERROR_ILLEGAL_ARGUMENT;
     }
 
     module->rxArray[index].ident = ident;
     module->rxArray[index].mask = mask;
     module->rxArray[index].object = object;
     module->rxArray[index].CANrx_callback = callback;
-    return ERROR_NO;
+    return CO_ERROR_NO;
 }
 
-can_tx_t *can_tx_buffer_init(can_module_t *module,
-                             uint16_t index,
-                             uint16_t ident,
-                             bool_t rtr,
-                             uint8_t length,
-                             bool_t sync)
+CO_CANtx_t *CO_CANtxBufferInit(CO_CANmodule_t *module,
+                               uint16_t index,
+                               uint16_t ident,
+                               bool_t rtr,
+                               uint8_t length,
+                               bool_t sync)
 {
     (void)rtr;
     if ((module == NULL) || (index >= module->txSize))
@@ -58,12 +63,12 @@ can_tx_t *can_tx_buffer_init(can_module_t *module,
     return &module->txArray[index];
 }
 
-can_return_error_t can_send(can_module_t *module, can_tx_t *buffer)
+CO_ReturnError_t CO_CANsend(CO_CANmodule_t *module, CO_CANtx_t *buffer)
 {
     (void)module;
     (void)memcpy(s_response, buffer->data, sizeof(s_response));
     s_response_count++;
-    return ERROR_NO;
+    return CO_ERROR_NO;
 }
 
 static bool_t StoreConfiguration(void *object,
@@ -102,7 +107,7 @@ static bool InitLss(CO_LSSslave_t *slave,
 
 static bool SendAndProcess(CO_LSSslave_t *slave, const uint8_t data[8])
 {
-    can_rx_msg_t message = {CAN_ID_LSS_MST, 8U, {0}};
+    CO_CANrxMsg_t message = {CO_CAN_ID_LSS_MST, 8U, {0}};
 
     (void)memcpy(message.data, data, sizeof(message.data));
     s_rx[0].CANrx_callback(s_rx[0].object, &message);

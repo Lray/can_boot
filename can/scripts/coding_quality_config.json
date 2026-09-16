@@ -7,7 +7,6 @@
     "boot",
     "download",
     "identity",
-    "lss",
     "security",
     "transport",
     "uds"
@@ -17,7 +16,6 @@
     "boot",
     "download",
     "identity",
-    "lss",
     "security",
     "transport",
     "uds"
@@ -32,8 +30,6 @@
     "boot/*.h",
     "download/*.h",
     "identity/*.h",
-    "lss/*.h",
-    "lss/301/*.h",
     "security/*.h",
     "transport/*.h",
     "uds/*.h",
@@ -53,8 +49,6 @@
     "boot/*.h",
     "download/*.h",
     "identity/*.h",
-    "lss/*.h",
-    "lss/301/*.h",
     "security/*.h",
     "transport/*.h",
     "uds/*.h",
@@ -135,11 +129,11 @@
     {
       "name": "stm32-can-driver-must-not-depend-on-upper-layers",
       "from": [
-        "transport/can_driver_stm32.c",
-        "transport/can_driver.h"
+        "transport/CO_driver_STM32.c",
+        "transport/CO_driver_target.h"
       ],
       "allowed_project_includes": [
-        "can_driver.h",
+        "CO_driver.h",
         "fdcan.h",
         "main.h"
       ],
@@ -176,7 +170,7 @@
         "isotp_user.h",
         "isotp_defines.h",
         "can_network.h",
-        "can_driver.h",
+        "CO_driver.h",
         "isotp_stm32.h",
         "stm32u5xx_hal.h"
       ],
@@ -215,7 +209,7 @@
       ],
       "allowed_project_includes": [
         "ulog_can_wire.h",
-        "can_driver.h",
+        "CO_driver.h",
         "can_network.h"
       ],
       "forbid_includes": [
@@ -242,7 +236,7 @@
       "allowed_project_includes": [
         "ulog_can.h",
         "ulog_can_wire.h",
-        "can_driver.h"
+        "CO_driver.h"
       ],
       "forbid_includes": [
         "isotp.h",
@@ -284,7 +278,7 @@
       "forbid_includes": [
         "main.h",
         "fdcan.h",
-        "can_driver.h",
+        "CO_driver.h",
         "can_network.h",
         "flash_map.h",
         "image_verify.h",
@@ -352,7 +346,7 @@
       "forbid_includes": [
         "main.h",
         "fdcan.h",
-        "can_driver.h"
+        "CO_driver.h"
       ],
       "forbidden_symbols": [
         "Error_Handler",
@@ -385,7 +379,7 @@
         "fdcan.h",
         "boot_observation.h",
         "image_confirm.h",
-        "can_driver.h",
+        "CO_driver.h",
         "can_network.h",
         "confirm.h",
         "download.h",
@@ -419,9 +413,9 @@
       "reason": "UDS wire byte-order helpers are stateless leaves and cannot own protocol, domain, transport, logging, or hardware policy"
     },
     {
-      "name": "can-driver-contract-must-remain-below-protocol",
+      "name": "can-driver-target-must-remain-below-protocol",
       "from": [
-        "transport/can_driver.h"
+        "transport/CO_driver_target.h"
       ],
       "allowed_project_includes": [
         "main.h"
@@ -438,7 +432,7 @@
         "flash_area_*",
         "ImageVerify_*"
       ],
-      "reason": "the CAN driver contract exposes CANopen-style frame I/O and cannot depend on protocol, OTA, security, logging, or persistence policy"
+      "reason": "the CANopen target driver contract exposes only STM32 frame I/O and cannot depend on protocol, OTA, security, logging, or persistence policy"
     },
     {
       "name": "flash-map-must-not-depend-on-ota-or-protocol",
@@ -490,22 +484,6 @@
         "UDS_"
       ],
       "reason": "runtime firmware may read the factory identity but only the production provisioning flow may erase or program its dedicated page"
-    },
-    {
-      "name": "lss-driver-adapter-must-map-only-the-can-abi",
-      "from": [
-        "lss/301/CO_driver.h"
-      ],
-      "allowed_project_includes": [
-        "can_driver.h"
-      ],
-      "forbidden_symbols": [
-        "HAL_FDCAN_",
-        "HAL_FLASH_",
-        "UDS_",
-        "Download_"
-      ],
-      "reason": "the adapter maps upstream CANopenNode names to the existing target driver ABI only"
     },
     {
       "name": "boot-artifacts-must-not-depend-on-download-or-protocol",

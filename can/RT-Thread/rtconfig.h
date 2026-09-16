@@ -144,7 +144,7 @@
 // <c1>Using console
 //  <i>Using console
 /* Console is disabled: ULog output uses the programmatically registered CAN
- * backend after can_set_normal_mode(); no RT-Thread console device is required. */
+ * backend after CO_CANsetNormalMode(); no RT-Thread console device is required. */
 /* #define RT_USING_CONSOLE */
 // </c>
 // <o>the buffer size of console <1-1024>
@@ -176,7 +176,7 @@
 // </h>
 
 /* ULog is imported from the RT-Thread v4.1.1 source matching Nano.  Keep the
- * native asynchronous worker; the CAN backend is registered after can_set_normal_mode()
+ * native asynchronous worker; the CAN backend is registered after CO_CANsetNormalMode()
  * by the application composition root rather than through a console device. */
 #define RT_USING_ULOG
 #define ULOG_OUTPUT_LVL 7

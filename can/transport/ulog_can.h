@@ -3,10 +3,10 @@
 
 #include <stdbool.h>
 
-#include "can_driver.h"
+#include "301/CO_driver.h"
 
 /** Register non-blocking raw-CAN log output after CAN enters normal mode. */
-bool ULogCan_Init(can_module_t *CANmodule, can_tx_t *tx_buffer);
+bool ULogCan_Init(CO_CANmodule_t *CANmodule, CO_CANtx_t *tx_buffer);
 
 /** Submit one queued raw-CAN log fragment without blocking the caller. */
 bool ULogCan_Poll(void);

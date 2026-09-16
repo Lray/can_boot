@@ -25,7 +25,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "can_driver.h"
+#include "301/CO_driver.h"
 #include "shared/can_network.h"
 #include "CO_storageBlank.h"
 #include "download.h"
@@ -111,17 +111,17 @@ static uint32_t s_reset_due_tick;
 static IsoTpLink s_uds_isotp;
 static uint8_t s_isotp_send_buffer[UDS_ISOTP_BUFFER_SIZE];
 static uint8_t s_isotp_receive_buffer[UDS_ISOTP_BUFFER_SIZE];
-static can_module_t s_can_module;
-static can_stm32_t s_can_stm32;
-static can_rx_t s_can_rx_buffers[CAN_RX_BUFFER_COUNT];
-static can_tx_t s_can_tx_buffers[CAN_TX_BUFFER_COUNT];
+static CO_CANmodule_t s_can_module;
+static CANopenNodeSTM32 s_can_stm32;
+static CO_CANrx_t s_can_rx_buffers[CAN_RX_BUFFER_COUNT];
+static CO_CANtx_t s_can_tx_buffers[CAN_TX_BUFFER_COUNT];
 static CO_LSSslave_t s_lss_slave;
 static CO_LSS_address_t s_lss_address;
 static uint8_t s_lss_pending_node_id;
 static uint16_t s_lss_pending_bit_rate;
 static uint32_t s_lss_storage_word;
-static can_tx_t *s_heartbeat_tx_buffer;
-static can_rx_msg_t s_can_rx_queue[CAN_RX_QUEUE_CAPACITY];
+static CO_CANtx_t *s_heartbeat_tx_buffer;
+static CO_CANrxMsg_t s_can_rx_queue[CAN_RX_QUEUE_CAPACITY];
 static volatile uint8_t s_can_rx_head;
 static volatile uint8_t s_can_rx_tail;
 
@@ -157,14 +157,14 @@ static void ReceiveUdsCanFrame(void *object, void *message)
     (void)object;
 
     if ((message == NULL) ||
-        (can_rx_msg_read_ident(message) != CAN_ID_UDS_REQUEST))
+        (CO_CANrxMsg_readIdent(message) != CAN_ID_UDS_REQUEST))
     {
         return;
     }
 
-    if ((can_rx_msg_read_dlc(message) == 0U) ||
-        (can_rx_msg_read_dlc(message) >
-         sizeof(((can_rx_msg_t *)message)->data)))
+    if ((CO_CANrxMsg_readDLC(message) == 0U) ||
+        (CO_CANrxMsg_readDLC(message) >
+         sizeof(((CO_CANrxMsg_t *)message)->data)))
     {
         return;
     }
@@ -175,7 +175,7 @@ static void ReceiveUdsCanFrame(void *object, void *message)
         return;
     }
 
-    s_can_rx_queue[s_can_rx_head] = *(can_rx_msg_t *)message;
+    s_can_rx_queue[s_can_rx_head] = *(CO_CANrxMsg_t *)message;
     s_can_rx_head = next_head;
 }
 
@@ -183,7 +183,7 @@ static void PollUdsCanFrames(void)
 {
     while (s_can_rx_head != s_can_rx_tail)
     {
-        can_rx_msg_t message;
+        CO_CANrxMsg_t message;
         uint32_t primask = __get_PRIMASK();
 
         __disable_irq();
@@ -308,7 +308,7 @@ static void SendHeartbeat(void)
     }
 
     s_heartbeat_tx_buffer->data[0] = CAN_HEARTBEAT_STATE_ALIVE;
-    (void)can_send(&s_can_module, s_heartbeat_tx_buffer);
+    (void)CO_CANsend(&s_can_module, s_heartbeat_tx_buffer);
 }
 
 static void HeartbeatThreadEntry(void *parameter)
@@ -443,21 +443,21 @@ int main(void)
     isotp_set_rx_done_cb(&s_uds_isotp, DispatchUdsMessage, NULL);
 
     {
-        can_return_error_t can_result;
+        CO_ReturnError_t can_result;
         bool can_started;
 
         s_can_stm32.CANHandle = FDCAN_Port_GetHandle();
         s_can_stm32.HWInitFunction = MX_FDCAN1_Init;
-        can_result = can_module_init(&s_can_module,
+        can_result = CO_CANmodule_init(&s_can_module,
                                      &s_can_stm32,
                                      s_can_rx_buffers,
                                      CAN_RX_BUFFER_COUNT,
                                      s_can_tx_buffers,
                                      CAN_TX_BUFFER_COUNT,
                                      CAN_BIT_RATE_KBIT);
-        if (can_result == ERROR_NO)
+        if (can_result == CO_ERROR_NO)
         {
-            can_result = can_rx_buffer_init(&s_can_module,
+            can_result = CO_CANrxBufferInit(&s_can_module,
                                             CAN_RX_UDS_INDEX,
                                             CAN_ID_UDS_REQUEST,
                                             0x07FFU,
@@ -466,16 +466,16 @@ int main(void)
                                             ReceiveUdsCanFrame);
         }
 
-        if (can_result == ERROR_NO)
+        if (can_result == CO_ERROR_NO)
         {
-            can_tx_t *isotp_tx_buffer = can_tx_buffer_init(
+            CO_CANtx_t *isotp_tx_buffer = CO_CANtxBufferInit(
                 &s_can_module,
                 CAN_TX_UDS_INDEX,
                 CAN_ID_UDS_RESPONSE,
                 false,
                 8U,
                 false);
-            can_tx_t *ulog_tx_buffer = can_tx_buffer_init(
+            CO_CANtx_t *ulog_tx_buffer = CO_CANtxBufferInit(
                 &s_can_module,
                 CAN_TX_ULOG_INDEX,
                 CAN_ID_MCU_ULOG,
@@ -483,7 +483,7 @@ int main(void)
                 8U,
                 false);
 
-            s_heartbeat_tx_buffer = can_tx_buffer_init(
+            s_heartbeat_tx_buffer = CO_CANtxBufferInit(
                 &s_can_module,
                 CAN_TX_HEARTBEAT_INDEX,
                 CAN_ID_HEARTBEAT,
@@ -497,7 +497,7 @@ int main(void)
             if (can_started)
             {
                 isotp_stm32_init(&s_can_module, isotp_tx_buffer);
-                can_set_normal_mode(&s_can_module);
+                CO_CANsetNormalMode(&s_can_module);
                 can_started = s_can_module.CANnormal;
             }
             if (can_started)
@@ -627,12 +627,12 @@ int main(void)
         if (CO_LSSslave_process(&s_lss_slave))
         {
             s_can_module.CANnormal = false;
-            can_module_disable(&s_can_module);
+            CO_CANmodule_disable(&s_can_module);
             if (!ResetLssCommunication())
             {
                 Error_Handler();
             }
-            can_set_normal_mode(&s_can_module);
+            CO_CANsetNormalMode(&s_can_module);
             if (!s_can_module.CANnormal)
             {
                 Error_Handler();
@@ -641,8 +641,8 @@ int main(void)
 
         /* The FDCAN controller recovers from bus-off automatically; this
          * main-loop task only polls the PSR register to keep the classified
-         * error status fresh (mirrors CANopenNode can_module_process). */
-        can_module_process(&s_can_module);
+         * error status fresh (mirrors CANopenNode CO_CANmodule_process). */
+        CO_CANmodule_process(&s_can_module);
         (void)rt_thread_mdelay(1);
     }
 }

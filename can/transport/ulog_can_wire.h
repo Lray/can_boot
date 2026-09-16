@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "can_driver.h"
+#include "301/CO_driver.h"
 
 /* Shared MCU log-over-CAN wire format. See shared/mcu_log_can.h. */
 #include "../../shared/mcu_log_can.h"
@@ -20,6 +20,6 @@ bool ULogCanWire_BuildFrame(
     const char *log,
     uint16_t log_length,
     uint8_t fragment_index,
-    can_tx_t *frame);
+    CO_CANtx_t *frame);
 
 #endif /* ULOG_CAN_WIRE_H */

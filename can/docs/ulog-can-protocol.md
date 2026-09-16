@@ -12,7 +12,7 @@ cannot corrupt an OTA response.
 
 `Core/Src/fdcan.c` remains the CubeMX-generated initialization/MSP boundary.
 Runtime queues, HAL callbacks, and BUS-OFF handling live in
-`transport/can_driver_stm32.c`; `fdcan.h` exposes the single HAL-handle accessor
+`transport/CO_driver_STM32.c`; `fdcan.h` exposes the single HAL-handle accessor
 while keeping the handle owned by the generated file.
 The periodic `0x700` system heartbeat is emitted by its own RT-Thread task,
 separate from both the update/UDS thread and the ULog CAN transmitter.  It is a

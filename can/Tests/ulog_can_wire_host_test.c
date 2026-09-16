@@ -6,7 +6,7 @@
 
 static void test_build_frame_is_stateful_fragment_boundary(void)
 {
-    can_tx_t frame = {
+    CO_CANtx_t frame = {
         .ident = CAN_ID_MCU_ULOG,
         .bufferFull = false,
         .syncFlag = true,

@@ -54,7 +54,7 @@
 结果轮询表达，而不是以更长的 P2* 或 `0x78` 隐藏在 `0x34` 中。
 
 同样，若产品需要 functional addressing、29-bit/CAN FD 或更大的 UDS PDU，必须
-先扩展 `can_rx_msg_t`、`can_tx_t`、CAN filter、ISO-TP addressing/length/padding 状态机及对应
+先扩展 `CO_CANrxMsg_t`、`CO_CANtx_t`、CAN filter、ISO-TP addressing/length/padding 状态机及对应
 测试，不能仅修改 ID 常量后宣称符合相应 profile。
 
 ## 回归覆盖
@@ -63,4 +63,4 @@ ISO-TP 主机测试直接调用上游 API，覆盖无填充 Single Frame、多�
 接收缓冲区 Overflow、发送填充、BS/STmin 发送节拍以及 `N_Bs/N_Cr` 超时原因。
 UDS/下载测试覆盖正响应抑制、P2* wire 编码、下载准备作业的 `pending`、`ready`
 以及 `0x34` 仅在 ready 后接受。固定寻址及 Classic CAN 限制由
-`can_network.h`、`can_driver.h` 和本文件共同定义。
+`can_network.h`、`301/CO_driver.h` 和本文件共同定义。

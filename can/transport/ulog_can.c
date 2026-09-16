@@ -1,6 +1,5 @@
 #include "ulog_can.h"
 
-#include "can_driver.h"
 #include "ulog_can_wire.h"
 
 #include <rtthread.h>
@@ -25,8 +24,8 @@ static struct rt_rbb_blk s_record_blocks[ULOG_CAN_QUEUE_CAPACITY];
 static rt_ubase_t s_record_storage[ULOG_CAN_QUEUE_STORAGE_WORDS];
 static rt_rbb_blk_t s_active_record;
 static uint8_t s_active_fragment;
-static can_module_t *s_can_module;
-static can_tx_t *s_tx_buffer;
+static CO_CANmodule_t *s_can_module;
+static CO_CANtx_t *s_tx_buffer;
 
 static void ULogCan_Enqueue(
     struct ulog_backend *backend,
@@ -58,7 +57,7 @@ static void ULogCan_Enqueue(
     rt_rbb_blk_put(block);
 }
 
-bool ULogCan_Init(can_module_t *CANmodule, can_tx_t *tx_buffer)
+bool ULogCan_Init(CO_CANmodule_t *CANmodule, CO_CANtx_t *tx_buffer)
 {
     if ((CANmodule == NULL) || (tx_buffer == NULL))
     {
@@ -117,7 +116,7 @@ bool ULogCan_Poll(void)
     }
 
     /* A full Tx FIFO leaves the active fragment untouched for the next poll. */
-    if (can_send(s_can_module, s_tx_buffer) != ERROR_NO)
+    if (CO_CANsend(s_can_module, s_tx_buffer) != CO_ERROR_NO)
     {
         return false;
     }

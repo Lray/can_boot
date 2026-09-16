@@ -9,7 +9,7 @@ bool ULogCanWire_BuildFrame(
     const char *log,
     uint16_t log_length,
     uint8_t fragment_index,
-    can_tx_t *frame)
+    CO_CANtx_t *frame)
 {
     uint16_t offset;
     uint16_t remaining;

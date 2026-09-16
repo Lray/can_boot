@@ -19,9 +19,9 @@ set(CMAKE_C_EXTENSIONS OFF)
 set(TRANSPORT_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/../transport)
 set(UDS_DIR        ${CMAKE_CURRENT_SOURCE_DIR}/../uds)
 set(IDENTITY_DIR   ${CMAKE_CURRENT_SOURCE_DIR}/../identity)
-set(LSS_DIR        ${CMAKE_CURRENT_SOURCE_DIR}/../lss)
 set(CORE_INC_DIR   ${CMAKE_CURRENT_SOURCE_DIR}/../Core/Inc)
 set(REPO_INC_DIR   ${CMAKE_CURRENT_SOURCE_DIR}/../..)
+set(CANOPENNODE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/CANopenNode)
 set(STORAGE_DIR    ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/CanOpenSTM32/CANopenNode_STM32)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/isotp.cmake)
@@ -32,8 +32,8 @@ set(TEST_MODULE_INC_DIRS
     ${TRANSPORT_DIR}
     ${UDS_DIR}
     ${IDENTITY_DIR}
-    ${LSS_DIR}
     ${CORE_INC_DIR}
+    ${CANOPENNODE_DIR}
 )
 
 function(configure_host_test target)
@@ -129,12 +129,12 @@ add_executable(storage_blank_host_test
     ${STORAGE_DIR}/CO_storageBlank.c
 )
 target_include_directories(storage_blank_host_test BEFORE PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/fakes/lss
+    ${CMAKE_CURRENT_SOURCE_DIR}/fakes
 )
 target_include_directories(storage_blank_host_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../boot
-    ${LSS_DIR}
     ${REPO_INC_DIR}
+    ${CANOPENNODE_DIR}
     ${STORAGE_DIR}
 )
 configure_host_test(storage_blank_host_test)
@@ -145,10 +145,9 @@ add_executable(lss_slave_host_test
     ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/CANopenNode/305/CO_LSSslave.c
 )
 target_include_directories(lss_slave_host_test BEFORE PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/fakes/lss
+    ${CMAKE_CURRENT_SOURCE_DIR}/fakes
 )
 target_include_directories(lss_slave_host_test PRIVATE
-    ${LSS_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/CANopenNode
+    ${CANOPENNODE_DIR}
 )
 configure_host_test(lss_slave_host_test)
