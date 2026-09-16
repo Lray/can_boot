@@ -58,7 +58,7 @@ addInterface(CO_CANmodule_t* CANmodule, int can_ifindex) {
         return CO_ERROR_ILLEGAL_ARGUMENT;
     }
 
-    interface->fd = socket(PF_CAN, SOCK_RAW, CAN_RAW);
+    interface->fd = socket(PF_CAN, SOCK_RAW | SOCK_NONBLOCK | SOCK_CLOEXEC, CAN_RAW);
     if (interface->fd < 0) {
         free(interface);
         return CO_ERROR_SYSCALL;
@@ -109,6 +109,8 @@ CO_CANmodule_init(CO_CANmodule_t* CANmodule, void* CANptr, CO_CANrx_t rxArray[],
     }
 
     memset(CANmodule, 0, sizeof(*CANmodule));
+    memset(rxArray, 0, rxSize * sizeof(*rxArray));
+    memset(txArray, 0, txSize * sizeof(*txArray));
     CANmodule->epoll_fd = socketCan->epoll_fd;
     CANmodule->rxArray = rxArray;
     CANmodule->rxSize = rxSize;
@@ -190,24 +192,18 @@ CO_CANsend(CO_CANmodule_t* CANmodule, CO_CANtx_t* buffer) {
         return CO_ERROR_ILLEGAL_ARGUMENT;
     }
 
-    CO_ReturnError_t error = buffer->bufferFull ? CO_ERROR_TX_OVERFLOW : CO_ERROR_NO;
     ssize_t written;
     do {
         written = send(CANmodule->CANinterfaces[0].fd, buffer, CAN_MTU, MSG_DONTWAIT);
     } while (written < 0 && errno == EINTR);
 
     if (written == CAN_MTU) {
-        if (buffer->bufferFull) {
-            buffer->bufferFull = false;
-            CANmodule->CANtxCount--;
-        }
-        return error;
+        return CO_ERROR_NO;
     }
-    if (errno == EAGAIN || errno == ENOBUFS) {
-        if (!buffer->bufferFull) {
-            buffer->bufferFull = true;
-            CANmodule->CANtxCount++;
-        }
+    /* LSS reuses its single buffer for four selective-address frames.
+     * Never queue that mutable buffer; abort commissioning on any lost frame. */
+    CANmodule->CANerrorStatus |= CO_CAN_ERRTX_OVERFLOW;
+    if (written < 0 && (errno == EAGAIN || errno == ENOBUFS)) {
         return CO_ERROR_TX_BUSY;
     }
     return CO_ERROR_SYSCALL;
@@ -220,24 +216,14 @@ CO_CANclearPendingSyncPDOs(CO_CANmodule_t* CANmodule) {
 
 void
 CO_CANmodule_process(CO_CANmodule_t* CANmodule) {
-    if (CANmodule == NULL || CANmodule->CANtxCount == 0) {
-        return;
-    }
-    for (uint16_t i = 0; i < CANmodule->txSize; i++) {
-        CO_CANtx_t* buffer = &CANmodule->txArray[i];
-        if (buffer->bufferFull) {
-            buffer->bufferFull = false;
-            CANmodule->CANtxCount--;
-            (void)CO_CANsend(CANmodule, buffer);
-            return;
-        }
-    }
-    CANmodule->CANtxCount = 0;
+    (void)CANmodule;
 }
 
 static int32_t
 dispatch(CO_CANmodule_t* CANmodule, struct can_frame* frame, CO_CANrxMsg_t* copy) {
-    CO_CANrxMsg_t* message = (CO_CANrxMsg_t*)frame;
+    CO_CANrxMsg_t received;
+    memcpy(&received, frame, sizeof(received));
+    CO_CANrxMsg_t* message = &received;
 
     for (uint16_t i = 0; i < CANmodule->rxSize; i++) {
         CO_CANrx_t* buffer = &CANmodule->rxArray[i];
@@ -261,9 +247,16 @@ CO_CANrxFromEpoll(CO_CANmodule_t* CANmodule, struct epoll_event* event, CO_CANrx
         return false;
     }
 
+    if ((event->events & (EPOLLERR | EPOLLHUP)) != 0) {
+        CANmodule->CANerrorStatus |= CO_CAN_ERRRX_OVERFLOW;
+    }
     if ((event->events & EPOLLIN) != 0) {
         struct can_frame frame;
         ssize_t received = recv(event->data.fd, &frame, sizeof(frame), MSG_DONTWAIT);
+        if ((received < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
+            || (received >= 0 && received != CAN_MTU)) {
+            CANmodule->CANerrorStatus |= CO_CAN_ERRRX_OVERFLOW;
+        }
         if (received == CAN_MTU && CANmodule->CANnormal && (frame.can_id & CAN_ERR_FLAG) == 0) {
             int32_t index = dispatch(CANmodule, &frame, buffer);
             if (msgIndex != NULL) {
