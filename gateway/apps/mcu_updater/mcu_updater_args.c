@@ -66,7 +66,7 @@ int mcu_updater_args_parse(int argc, char **argv, McuUpdaterOptions_t *options)
     }
     memset(options, 0, sizeof(*options));
     options->can_ifname = MCU_UPDATER_DEFAULT_CAN_IFNAME;
-    options->endpoint_base = REMOTE_HANDLER_ENDPOINT_BASE;
+    options->endpoint_base = REMOTE_HANDLER_DEFAULT_ENDPOINT;
     for (index = 1; index + 1 < argc; index += 2)
     {
         const char *name = argv[index];
@@ -161,6 +161,6 @@ void mcu_updater_args_print_usage(const char *program)
             "usage: %s --work-root /abs/path "
             "--signer-endpoint /abs/v1.sock --signer-uid UID --signer-gid GID "
             "--signer-socket-gid GID --signer-timeout-ms N "
-            "[--ifname awlink0] [--endpoint-base " REMOTE_HANDLER_ENDPOINT_BASE "]\n",
+            "[--ifname awlink0] [--endpoint-base " REMOTE_HANDLER_DEFAULT_ENDPOINT "]\n",
             program);
 }

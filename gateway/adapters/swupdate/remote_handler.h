@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define REMOTE_HANDLER_ENDPOINT_BASE "ipc:///run/mcu-update/remote-handler/mcu-v1"
+#define REMOTE_HANDLER_DEFAULT_ENDPOINT "ipc:///run/mcu-update/remote-handler/mcu-v1"
 #define REMOTE_HANDLER_CMD_MAX 96u
 
 typedef struct
