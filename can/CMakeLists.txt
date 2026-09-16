@@ -94,7 +94,6 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     identity/factory_identity.c
     ../third_party/CANopenNode/305/CO_LSSslave.c
     ../third_party/CanOpenSTM32/CANopenNode_STM32/CO_storageBlank.c
-    ../shared/crc32.c
     security/security_access.c
     security/security_access_entropy_stm32.c
     security/security_token.c

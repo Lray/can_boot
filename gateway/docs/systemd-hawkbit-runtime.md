@@ -19,7 +19,7 @@ hawkbit.conf -> SWUpdate Suricatta -> HawkBit DDI
 `mcu-updater` no longer starts Wi-Fi, SWUpdate, or the token signer.
 It has exactly one job: bind the SWUpdate Remote Handler endpoint; accept one
 bounded, already verified `image.bin` stream; derive its SHA-256 for local
-audit and resume identity; publish `package-input-v1` atomically; and run the
+audit identity; publish `package-input-v1` atomically; and run the
 single MCU update state machine in the same process. It does not
 implement DDI, HTTP, HawkBit authentication, image signatures, or MCU
 boot policy.
@@ -73,7 +73,7 @@ Release size, digest, and transaction identifiers are deliberately absent.
 SWUpdate first verifies the signed description and complete artifact, its
 Remote Handler announces the actual image size, and the resident updater
 creates a fresh internal UUID. The receiver recomputes SHA-256 from exactly
-the received bytes; the update engine recomputes it again as the MCU resume
+the received bytes; the update engine recomputes it again as the MCU payload
 payload identity. Temporary job data lives below the systemd runtime directory
 and is removed after each transaction.
 

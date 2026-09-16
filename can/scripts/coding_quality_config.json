@@ -521,7 +521,6 @@
         "erase_job.h",
         "boot_observation.h",
         "flash_map.h",
-        "crc32.h",
         "sysflash.h"
       ],
       "forbidden_symbols": [

@@ -216,29 +216,30 @@ int uds_security_send_token(UdsClient *client, const uint8_t *token,
     return 0;
 }
 
-int uds_prepare_download(UdsClient *client,
-                         const uint8_t payload_id[PAYLOAD_ID_SIZE],
-                         uint32_t image_size)
+/*
+ * SID: 0x31 RoutineControl (StartRoutine) - erase the inactive MCU OTA slot.
+ *
+ * RoutineIdentifier 0xFF00 (EraseMemory, ISO 14229). Request wire format:
+ * 0x31 01 FF 00 with no status record. The MCU selects the inactive slot and
+ * starts its asynchronous erase job; progress is polled with
+ * uds_erase_memory_results().
+ */
+int uds_erase_memory(UdsClient *client)
 {
-    uint8_t request[UDS_PREPARE_DOWNLOAD_ROUTINE_REQUEST_LEN] = {0};
+    uint8_t request[UDS_ROUTINE_CONTROL_REQUEST_LEN] = {0};
     uint8_t response[UDS_MAX_RESPONSE] = {0};
     size_t response_len = 0u;
     int rc = 0;
 
-    if (!uds_client_is_ready(client) || payload_id == NULL || image_size == 0u)
+    if (!uds_client_is_ready(client))
     {
         return UDS_ERR_INVALID_ARG;
     }
 
     request[0] = SID_ROUTINE_CONTROL;
     request[1] = ROUTINE_CONTROL_START;
-    request[2] = (uint8_t)(ROUTINE_ID_PREPARE_DOWNLOAD >> 8);
-    request[3] = (uint8_t)ROUTINE_ID_PREPARE_DOWNLOAD;
-    byte_order_put_u32_be(request + UDS_PREPARE_DOWNLOAD_ROUTINE_SIZE_OFFSET,
-                          image_size);
-    memcpy(request + UDS_PREPARE_DOWNLOAD_ROUTINE_PAYLOAD_ID_OFFSET,
-           payload_id,
-           PAYLOAD_ID_SIZE);
+    request[2] = (uint8_t)(ROUTINE_ID_ERASE_MEMORY >> 8);
+    request[3] = (uint8_t)ROUTINE_ID_ERASE_MEMORY;
 
     rc = uds_transaction_request(client, request, sizeof(request), response,
                                  sizeof(response), &response_len);
@@ -255,22 +256,32 @@ int uds_prepare_download(UdsClient *client,
     return 0;
 }
 
-int uds_prepare_download_ready(UdsClient *client, bool *ready_out)
+/*
+ * SID: 0x31 RoutineControl (RequestRoutineResults) - poll the erase routine.
+ *
+ * Request wire format: 0x31 03 FF 00. While erasing, the MCU answers
+ * NRC 0x24 RequestSequenceError (treated as "still pending" by the caller).
+ * Completed erasures answer 0x71 0x03 0xFF 0x00 plus a 4-byte BE status
+ * record: 0x00000000 = success, 0x00000072 = failure (mapped to
+ * UDS_ERR_NEGATIVE_RESPONSE with last_nrc kept for diagnostics).
+ */
+int uds_erase_memory_results(UdsClient *client, bool *complete_out)
 {
     uint8_t request[UDS_ROUTINE_CONTROL_REQUEST_LEN] = {0};
     uint8_t response[UDS_MAX_RESPONSE] = {0};
+    uint32_t record = 0u;
     size_t response_len = 0u;
     int rc = 0;
 
-    if (!uds_client_is_ready(client) || ready_out == NULL)
+    if (!uds_client_is_ready(client) || complete_out == NULL)
     {
         return UDS_ERR_INVALID_ARG;
     }
-    *ready_out = false;
+    *complete_out = false;
     request[0] = SID_ROUTINE_CONTROL;
     request[1] = ROUTINE_CONTROL_REQUEST_RESULTS;
-    request[2] = (uint8_t)(ROUTINE_ID_PREPARE_DOWNLOAD >> 8);
-    request[3] = (uint8_t)ROUTINE_ID_PREPARE_DOWNLOAD;
+    request[2] = (uint8_t)(ROUTINE_ID_ERASE_MEMORY >> 8);
+    request[3] = (uint8_t)ROUTINE_ID_ERASE_MEMORY;
 
     rc = uds_transaction_request(client, request, sizeof(request), response,
                                  sizeof(response), &response_len);
@@ -278,20 +289,24 @@ int uds_prepare_download_ready(UdsClient *client, bool *ready_out)
     {
         return rc;
     }
-    if ((response_len != UDS_PREPARE_DOWNLOAD_ROUTINE_RESULT_LEN) ||
+    if ((response_len != UDS_ERASE_MEMORY_RESULT_LEN) ||
         (response[1] != ROUTINE_CONTROL_REQUEST_RESULTS) ||
         (response[2] != request[2]) || (response[3] != request[3]))
     {
         return UDS_ERR_UNEXPECTED_RESPONSE;
     }
-    if (response[4] == ROUTINE_PREPARE_DOWNLOAD_STATUS_READY)
+    record = byte_order_get_u32_be(response + 4u);
+    if (record == ROUTINE_ERASE_RESULT_OK)
     {
-        *ready_out = true;
+        *complete_out = true;
         return 0;
     }
-    return response[4] == ROUTINE_PREPARE_DOWNLOAD_STATUS_PENDING
-               ? 0
-               : UDS_ERR_MALFORMED_RESPONSE;
+    if (record == ROUTINE_ERASE_RESULT_FAILURE)
+    {
+        client->last_nrc = (uint8_t)record;
+        return UDS_ERR_NEGATIVE_RESPONSE;
+    }
+    return UDS_ERR_MALFORMED_RESPONSE;
 }
 
 /* SID: 0x22 ReadDataService (ReadDataByIdentifier) - read and copy an MCU DID payload. */
@@ -337,7 +352,7 @@ int uds_read_did(UdsClient *client, uint16_t did, uint8_t *data_out, size_t data
     return 0;
 }
 
-/* SID: 0x34 RequestDownload - bind the payload identity and recover its cursor. */
+/* SID: 0x34 RequestDownload - bind the payload identity. */
 int uds_request_download(UdsClient *client,
                          const uint8_t payload_id[PAYLOAD_ID_SIZE],
                          uint32_t image_size,
@@ -374,12 +389,10 @@ int uds_request_download(UdsClient *client,
         return UDS_ERR_MALFORMED_RESPONSE;
     }
 
-response_out->max_block_len = byte_order_get_u16_be(
+    response_out->max_block_len = byte_order_get_u16_be(
         response + UDS_REQUEST_DOWNLOAD_RESPONSE_MAX_BLOCK_OFFSET);
     response_out->target_slot =
         response[UDS_REQUEST_DOWNLOAD_RESPONSE_TARGET_SLOT_OFFSET];
-    response_out->resume_offset = byte_order_get_u32_be(
-        response + UDS_REQUEST_DOWNLOAD_RESPONSE_RESUME_OFFSET);
     return 0;
 }
 

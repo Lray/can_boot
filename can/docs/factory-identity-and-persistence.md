@@ -13,7 +13,7 @@ pages are reserved as follows:
 | Communication configuration | `0x081F2000-0x081F3FFF` | `0x2000` |
 | Factory identity | `0x081F4000-0x081F5FFF` | `0x2000` |
 | Boot security state | `0x081F6000-0x081F9FFF` | `0x4000` |
-| Download journal | `0x081FA000-0x081FDFFF` | `0x4000` |
+| Reserved | `0x081FA000-0x081FDFFF` | `0x4000` |
 | Boot user | `0x081FE000-0x081FFFFF` | `0x2000` |
 
 The two application slots are `0x08010000-0x0802FFFF` and

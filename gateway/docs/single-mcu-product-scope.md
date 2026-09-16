@@ -47,7 +47,7 @@ implementation; it is not part of the HawkBit runtime.
 - UDS SecurityAccess limits who may enter the privileged flashing session. It
   is defense in depth and session authorization; it does not replace package
   or MCUboot signature verification.
-- Transfer resume, UDS timeouts/NRC handling, reconnect, version observation,
+- Transfer, UDS timeouts/NRC handling, reconnect, version observation,
   and MCUboot rollback stay in the single OTA state machine.
 
 ## Fixed product contract

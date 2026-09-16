@@ -79,12 +79,12 @@ Required evidence:
 - positive `0x22` reads for `0xF180`, `0xF181`, `0xF182`, `0xF1A0`, `0xF1A6`, and `0xF1A8`
 - one negative response path, preferably unsupported DID `0xFFFF`
 - `0x78 ResponsePending` is unit-tested as a generic UDS transaction behavior; OTA erase
-  progress is validated through the `0x31 F001` routine result instead
+  progress is validated through the `0x31 FF00` routine result instead
 - link remains `ERROR-ACTIVE` with stable error counters
 
 ## OTA integration
 
-Do not invoke individual download, resume, pre-check, or reset
+Do not invoke individual download, pre-check, or reset
 services from a board smoke tool. The only integration path is:
 
 ```text
@@ -93,7 +93,7 @@ SWUpdate -> mcu-updater -> mcu_update_run_job -> ota_executor
 
 Required evidence:
 
-- positive `0x31 01 F0 01` followed by `0x31 03 F0 01` result `ready`
+- positive `0x31 01 FF 00` followed by `0x31 03 FF 00` result `0x00000000`
 - positive `0x34` response with `maxNumberOfBlockLength = 258`, without `0x78`
 - `0x36` responses match block sequence counters starting at `0x01`
 - payload size is `256 B` except the final short block if any
@@ -118,8 +118,8 @@ run against a real MCU. No host fake is a substitute for these checks.
 
 Required evidence:
 
-- checkpoint interruption and reconnect/resume are captured through the prepare routine
-  followed by extended `RequestDownload` journal matching
+- an interrupted transfer is restarted by erasing the inactive slot and sending
+  the image again from block sequence counter `0x01`
 - wrong BSC returns NRC `0x73`, and the gateway stops the stream
 - a malformed or wrongly signed image may pass transport pre-check only if its
   format is valid; after reset MCUboot must reject it and retain the previous slot

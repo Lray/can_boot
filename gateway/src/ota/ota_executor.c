@@ -5,7 +5,7 @@
 #include <string.h>
 
 #include "profile.h"
-#include "resume_transfer.h"
+#include "transfer.h"
 #include "security_access.h"
 #include "shared/image_confirm_result.h"
 #include "util.h"
@@ -91,7 +91,7 @@ OtaState_t ota_executor_run(const OtaExecutorConfig_t *config,
         return OTA_STATE_SESSION_OPEN;
     }
 
-    rc = resume_transfer_execute(config->client, package->image_sha256,
+    rc = transfer_execute(config->client, package->image_sha256,
                                  package->image_size, package->image,
                                  &target_slot);
     if (rc != 0)

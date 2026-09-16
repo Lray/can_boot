@@ -407,8 +407,7 @@ static void UDS_HandleSecurityAccess(const uint8_t *request, uint16_t length)
                        NRC_SUBFUNCTION_NOT_SUPPORTED);
 }
 
-static bool UDS_SendDownloadResponse(uint8_t target_slot,
-                                     uint32_t resume_offset)
+static bool UDS_SendDownloadResponse(uint8_t target_slot)
 {
   uint8_t rsp[UDS_REQUEST_DOWNLOAD_RESPONSE_LEN - 1U] = {0};
 
@@ -418,9 +417,6 @@ static bool UDS_SendDownloadResponse(uint8_t target_slot,
   rsp[UDS_REQUEST_DOWNLOAD_RESPONSE_MAX_BLOCK_OFFSET] =
       (uint8_t)DOWNLOAD_MAX_BLOCK_LENGTH;
   rsp[UDS_REQUEST_DOWNLOAD_RESPONSE_TARGET_SLOT_OFFSET - 1U] = target_slot;
-  UDS_Msg_WriteBe32(
-      &rsp[UDS_REQUEST_DOWNLOAD_RESPONSE_RESUME_OFFSET - 1U],
-      resume_offset);
   return UDS_SendPositive(SID_REQUEST_DOWNLOAD,
                                          rsp,
                                          sizeof(rsp),
@@ -431,7 +427,6 @@ static void UDS_HandleRequestDownload(const uint8_t *request, uint16_t length)
 {
     uint32_t address = 0U;
     uint32_t size = 0U;
-    uint32_t resume_offset = 0U;
     download_result_t result = DOWNLOAD_RESULT_SEQUENCE_ERROR;
     uint8_t target_slot = SLOT_INVALID;
 
@@ -467,8 +462,7 @@ static void UDS_HandleRequestDownload(const uint8_t *request, uint16_t length)
     result = Download_Begin(
         &request[UDS_REQUEST_DOWNLOAD_PAYLOAD_ID_OFFSET],
         size,
-        &target_slot,
-        &resume_offset);
+        &target_slot);
     if (result != DOWNLOAD_RESULT_OK)
     {
         UDS_SendNegative(
@@ -477,16 +471,16 @@ static void UDS_HandleRequestDownload(const uint8_t *request, uint16_t length)
         return;
     }
 
-    (void)UDS_SendDownloadResponse(target_slot, resume_offset);
+    (void)UDS_SendDownloadResponse(target_slot);
 }
 
 static void UDS_HandleRoutineControl(const uint8_t *request, uint16_t length)
 {
   uint8_t subfunction = 0U;
-  uint8_t rsp[UDS_PREPARE_DOWNLOAD_ROUTINE_RESULT_LEN - 1U] = {0};
+  uint8_t rsp[UDS_ERASE_MEMORY_RESULT_LEN - 1U] = {0};
   uint16_t routine_id = 0U;
 
-  if (length < UDS_ROUTINE_CONTROL_REQUEST_LEN)
+  if (length != UDS_ROUTINE_CONTROL_REQUEST_LEN)
   {
     UDS_SendNegative(SID_ROUTINE_CONTROL, NRC_INCORRECT_MESSAGE_LENGTH);
     return;
@@ -494,7 +488,7 @@ static void UDS_HandleRoutineControl(const uint8_t *request, uint16_t length)
 
   subfunction = request[1] & UDS_SUBFUNCTION_VALUE_MASK;
   routine_id = (uint16_t)(((uint16_t)request[2] << 8) | request[3]);
-  if (routine_id != ROUTINE_ID_PREPARE_DOWNLOAD)
+  if (routine_id != ROUTINE_ID_ERASE_MEMORY)
   {
     UDS_SendNegative(SID_ROUTINE_CONTROL, NRC_REQUEST_OUT_OF_RANGE);
     return;
@@ -510,17 +504,7 @@ static void UDS_HandleRoutineControl(const uint8_t *request, uint16_t length)
   rsp[2] = request[3];
   if (subfunction == ROUTINE_CONTROL_START)
   {
-    download_result_t result = DOWNLOAD_RESULT_SEQUENCE_ERROR;
-
-    if (length != UDS_PREPARE_DOWNLOAD_ROUTINE_REQUEST_LEN)
-    {
-      UDS_SendNegative(SID_ROUTINE_CONTROL, NRC_INCORRECT_MESSAGE_LENGTH);
-      return;
-    }
-
-    result = Download_Prepare(
-        &request[UDS_PREPARE_DOWNLOAD_ROUTINE_PAYLOAD_ID_OFFSET],
-        UDS_Msg_ReadBe32(&request[UDS_PREPARE_DOWNLOAD_ROUTINE_SIZE_OFFSET]));
+    download_result_t result = Download_Prepare();
     if (result != DOWNLOAD_RESULT_OK)
     {
       UDS_SendNegative(SID_ROUTINE_CONTROL, UDS_DownloadResultToNrc(result));
@@ -539,26 +523,19 @@ static void UDS_HandleRoutineControl(const uint8_t *request, uint16_t length)
     UDS_SendNegative(SID_ROUTINE_CONTROL, NRC_SUBFUNCTION_NOT_SUPPORTED);
     return;
   }
-  if (length != UDS_ROUTINE_CONTROL_REQUEST_LEN)
-  {
-    UDS_SendNegative(SID_ROUTINE_CONTROL, NRC_INCORRECT_MESSAGE_LENGTH);
-    return;
-  }
-
+  /* ARDEP-aligned results: not completed -> NRC 0x24; completed -> positive
+   * response with a 4-byte BE status record (0x00000000 / 0x00000072). */
   switch (Download_GetPreparationStatus())
   {
-    case DOWNLOAD_PREPARATION_PENDING:
-      rsp[3] = ROUTINE_PREPARE_DOWNLOAD_STATUS_PENDING;
-      break;
-
     case DOWNLOAD_PREPARATION_READY:
-      rsp[3] = ROUTINE_PREPARE_DOWNLOAD_STATUS_READY;
+      /* ROUTINE_ERASE_RESULT_OK record stays zeroed. */
       break;
 
     case DOWNLOAD_PREPARATION_FAILED:
-      UDS_SendNegative(SID_ROUTINE_CONTROL, NRC_GENERAL_PROGRAMMING_FAILURE);
-      return;
+      UDS_Msg_WriteBe32(&rsp[3], ROUTINE_ERASE_RESULT_FAILURE);
+      break;
 
+    case DOWNLOAD_PREPARATION_PENDING:
     case DOWNLOAD_PREPARATION_IDLE:
     default:
       UDS_SendNegative(SID_ROUTINE_CONTROL, NRC_REQUEST_SEQUENCE_ERROR);

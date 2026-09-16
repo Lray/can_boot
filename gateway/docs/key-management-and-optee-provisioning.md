@@ -115,5 +115,5 @@ fingerprints only; never log a seed, signature, token, or key material.
 - SWUpdate's signed description binds the final `image.bin` digest. The
   hardened Remote Handler forwards only after complete verification; the
   receiver and update engine derive the digest again for transport consistency
-  and resume identity. MCUboot retains the final signature/security-counter
+  and payload identity. MCUboot retains the final signature/security-counter
   decision.

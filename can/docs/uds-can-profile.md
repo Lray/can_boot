@@ -31,14 +31,16 @@
 - `0x10` 正响应公布 `P2ServerMax=50 ms` 和 `P2*ServerMax=5000 ms`；后者按
   ISO 14229 的 10 ms wire unit 编码为 `0x01F4`。
 - `0x34 RequestDownload` 是产品扩展：标准 address/size 字段后追加完整 payload
-  SHA-256；正响应在最大块长后追加 MCU 选定的 `target_slot` 与唯一可恢复的
-  `resume_offset`。地址必须为零，目标槽始终由 MCU 的 inactive slot 推导。
-- `0x31 StartRoutine F001` 是下载准备的产品例程：请求携带完整镜像大小和
-  payload SHA-256，启动独立的擦除作业；`0x31 RequestRoutineResults F001` 返回
-  `pending` 或 `ready`。相同描述符的重复启动只返回当前作业，不重复擦除。擦除每轮
-  最多处理一个 8 KiB Flash page，由 OTA 组合根轮询。
-- `0x34 RequestDownload` 只验证已经 `ready` 的同一下载描述符，并立即返回 `0x74`；
-  它不擦除 Flash，也不发送 `0x78`。
+  SHA-256；正响应在最大块长后追加 MCU 选定的 `target_slot`。地址必须为零，
+  目标槽始终由 MCU 的 inactive slot 推导。
+- `0x31 StartRoutine FF00`（ISO 14229 routineIdentifier EraseMemory）擦除
+  inactive slot：请求不携带参数，MCU 选择 inactive slot 并启动独立的擦除作业；
+  `0x31 RequestRoutineResults FF00` 在未完成时返回 NRC `0x24`，完成后返回
+  4 字节 BE 结果记录（`0x00000000` 成功 / `0x00000072` 失败）。作业已激活时
+  重复启动返回 NRC `0x24`。擦除每轮最多处理一个 8 KiB Flash page，由 OTA 组合根
+  轮询。
+- `0x34 RequestDownload` 绑定下载描述符（payload SHA-256 与大小）并校验大小
+  适配目标槽，然后立即返回 `0x74`；它不擦除 Flash，也不发送 `0x78`。
 - `DID_CONFIRM_RESULT (0xF1A8)` 仅报告当前启动的自检与 MCUboot `image_ok`
   写入结果；它不是持久化激活状态。
 - `DID_APP_VERSION` 使用 8 字节完整 MCUboot 版本：`major, minor, revision
@@ -46,7 +48,7 @@
 
 ## 明确的产品边界
 
-擦除属于 `F001` 准备例程，而不是数据传输服务。`0x36 TransferData` 单次写入仍受
+擦除属于 `FF00` EraseMemory 例程，而不是数据传输服务。`0x36 TransferData` 单次写入仍受
 `DOWNLOAD_MAX_TRANSFER_PAYLOAD`（256 bytes）约束。普通 OTA 镜像由制作工具
 预置 pending magic；最后一个 TransferData 只编程独立的 16-byte magic 单元。
 镜像完整性验真（SHA-256、签名、TLV、安全计数器）在复位后由 MCUboot 完成。

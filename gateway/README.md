@@ -32,7 +32,7 @@ hawkBit/SWUpdate 接收和验证发布包，经固定 SocketCAN/ISO-TP/UDS 通�
 - `src/uds/`：UDS client 与 NRC/timeout 处理。
 - `src/security/`：Gateway 侧 SecurityAccess 编排与 Token 交互。
 - `src/package/`：升级包结构、CRC/SHA、MCUboot 格式边界与策略校验；不作最终签名/启动裁决。
-- `src/ota/`：单 MCU 更新入口、`0x34/0x36/0x37` 下载、断点续传、reset 与确认。
+- `src/ota/`：单 MCU 更新入口、`0x34/0x36/0x37` 下载、reset 与确认。
 - `src/log/`：MCU ULog raw-CAN 重组；仅供独立诊断工具使用，独立于 OTA 会话。
 - `apps/lss_master/`：直接使用官方 CANopenNode LSS Master 的独立 commissioning 工具。
 - `third_party/CANopenLinux/`：最小 SocketCAN driver 与 standalone filesystem persistence。
@@ -170,8 +170,7 @@ cd /opt/can-ota-gateway
 | UDS timing | 初始默认 `P2=50 ms`、`P2*=5000 ms`；每次 `0x10` 后以 MCU 公布的参数为准（P2* wire unit=10 ms），TesterPresent=1000 ms |
 | TransferData payload | 256 bytes |
 | maxNumberOfBlockLength | 258 |
-| RequestDownload extension | `payload_id`, target slot, resume offset |
-| Update checkpoint | 8192 bytes |
+| RequestDownload extension | `payload_id`, target slot |
 
 共享常量以 `src/profile.h` 为准；README 与代码冲突时必须先修正文档和
 契约，再修改生产实现。
