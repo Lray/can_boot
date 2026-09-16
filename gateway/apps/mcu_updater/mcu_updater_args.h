@@ -6,7 +6,7 @@ typedef struct
 {
     const char *work_root;
     const char *can_ifname;
-    const char *endpoint;
+    const char *endpoint_base;
     const char *signer_endpoint;
     const char *signer_uid;
     const char *signer_gid;

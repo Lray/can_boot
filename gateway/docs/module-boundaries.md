@@ -298,7 +298,7 @@ protocol and domain library:
   `remote_handler` owns the ZeroMQ REP endpoint and frame protocol;
   `package_store` owns package receive, the announced-size bound, local
   SHA-256 derivation, and atomic publication; `mcu_updater_main.c` composes those
-  adapters with the single `mcu_update_run_job()` application service.
+  adapters with the serialized `mcu_update_run_job()` application service.
 - `src/security/token_signer_*`: token signer client library; `token_signer_codec`
   owns CBOR and protocol framing while the client owns Unix
   socket policy and I/O. `token_signer_protocol.h` is the single source for the
@@ -318,12 +318,13 @@ Current tools:
 - `tools/smoke/raw_can_smoke.c`: RAW CAN send smoke.
 - `tools/smoke/uds_smoke.c`: minimal UDS/DID smoke.
 
-The MCU updater has no package descriptor; the signed MCUboot image is the only
-package member, and the SecurityAccess token contract (seed-challenge
+The MCUboot image is the only remote artifact. The signed `sw-description`
+selects a registered LSS identity through the handler `data` field; target
+metadata is never added to `image.bin`. The SecurityAccess token contract (seed-challenge
 claims) lives in `shared/security_token_profile.h`. The direct diagnostic CLI is isolated
 in `direct_args.c/.h`.
 
-## Single-MCU Production Updater
+## Multi-MCU Production Updater
 
 Owner:
 
@@ -333,17 +334,16 @@ Owner:
 
 Application-service owner:
 
-- `src/ota/mcu_update.h`
-- `src/ota/mcu_update.c`
+- `apps/mcu_updater/update_job.h`
+- `apps/mcu_updater/update_job.c`
 
 Responsibility:
 
-- `mcu_updater_main.c` receives one SWUpdate-verified image through the official
-  Remote Handler contract, creates an internal transaction, and atomically
-  publishes it.
-- `mcu_update_run_job()` validates the published input, configures the fixed
-  ISO-TP channel and TEE signer client, and invokes the only OTA lifecycle in
-  `ota_executor`.
+- `mcu_updater_main.c` binds one endpoint per registered LSS identity and
+  receives one SWUpdate-verified image at a time through the unchanged official
+  Remote Handler contract.
+- `mcu_update_run_job()` resolves identity to Node-ID, configures ISO-TP,
+  verifies the observed identity, and invokes the only OTA lifecycle.
 - The production process does not fork or execute a second OTA updater.
 - The updater must not implement DDI, HTTP, SWU parsing/signature checking, or
   MCUboot boot policy; those belong to SWUpdate and MCUboot.

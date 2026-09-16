@@ -1,129 +1,83 @@
-# Gateway CAN Bring-Up Checklist
+# Gateway multi-MCU board bring-up
 
-## RAW CAN
+This checklist requires the target SDK-built Gateway programs and
+STM32CubeIDE-built MCU firmware. Host tests are not part of this acceptance.
 
-Preconditions:
+## 1. Physical CAN
 
-- Target kernel has SocketCAN enabled.
-- `awlink0` exists on the target board.
-- Root filesystem includes `iproute2`.
-- Root filesystem includes `can-utils` with `candump`.
-- CAN bus is terminated correctly.
-- MCU side is configured for classic CAN at `500000` bps.
-- MCU firmware periodically transmits heartbeat ID `0x700`.
-- MCU firmware echoes or otherwise responds to gateway request ID `0x7E0` on response ID `0x7E8`.
+For every MCU, verify 500 kbit/s Classic CAN, correct termination and an
+ERROR-ACTIVE interface with stable error counters. An unconfigured MCU must
+expose only official LSS traffic; it must not emit UDS, heartbeat or log frames.
 
-Gateway commands:
+## 2. Commission identities
 
-```bash
-cd /opt/can-ota-gateway
-./scripts/setup_can0.sh awlink0 500000
-./scripts/verify_raw_can.sh awlink0 .
+Stop `mcu-updater.service` before commissioning because commissioning and
+updating intentionally share one per-interface lock.
+
+For each MCU, use either:
+
+```sh
+gateway-lss-master fastscan awlink0 <node-id>
+gateway-lss-master select awlink0 <vendor> <product> <revision> <serial> <node-id>
 ```
 
 Required evidence:
 
-- `ip -details link show awlink0` after setup.
-- `candump -tz awlink0` line containing MCU heartbeat standard frame `700#05` (DLC `1`).
-- Heartbeats arrive every `1000 ms`; a consumer records the last valid receive time and considers the MCU offline after more than `3000 ms` without one.
-- `raw_can_smoke` or `cansend` evidence that gateway sent standard CAN ID `7E0` with payload `11 22 33 44 55 66 77 88`.
-- `candump -tz awlink0` line containing MCU response standard CAN ID `7E8` with payload `11 22 33 44 55 66 77 88`.
-- `ip -details -statistics link show awlink0` after the smoke test, showing `ERROR-ACTIVE`, `berr-counter tx 0 rx 0`, `bus-errors 0`, `error-warn 0`, `error-pass 0`, `bus-off 0`, and RX/TX errors `0`.
-- Final script line: `RAW CAN PASS`.
+- the tool prints the four-field identity and previous Node-ID;
+- the selected Node-ID is 1..127 and unique on the interface;
+- after store and deselect, reselect/inquire returns that active Node-ID;
+- `/var/lib/mcu-update/devices/awlink0.bin` is created with root ownership and
+  is unchanged after a failed/conflicting registration;
+- duplicate identity, duplicate Node-ID, corrupt registry and concurrent tool
+  invocation all fail closed.
 
-Seeing only the local `7E0` request in `candump` is not sufficient. RAW CAN success requires evidence from the MCU side: heartbeat `700` and response `7E8`.
+Restart `mcu-updater.service` after the last registration. Confirm one socket
+per identity exists under `/run/mcu-update/remote-handler/`.
 
-## Next validations
+## 3. Node-based transport
 
-Do not start OTA download services before these pass in order:
+For each registered Node-ID `n`, capture:
 
-1. `RAW CAN`
-2. `ISO-TP`
-3. `Minimal UDS`
+- UDS request `0x600+n` and response `0x580+n`;
+- heartbeat `0x700+n`, DLC 1, data `05`, period 1000 ms;
+- optional logs only on `0x680+n`.
 
-## ISO-TP
+Run the board smoke programs with explicit Node-ID. Read
+`DID_LSS_IDENTITY (0xF1A9)` and require the expected four BE32 fields.
+Also verify sessions `0x10 03` and `0x10 02`, TesterPresent `0x3E 00`,
+version/slot/confirmation DIDs, one unsupported DID response, multi-frame
+transport, BS=8 and STmin=2 ms.
 
-Do not start UDS until ISO-TP transport is proven.
+## 4. Signed target selection
 
-Gateway command:
+Build separate SWUs from the same valid `image.bin` for two registered
+identities. Inspect each signed `sw-description`: its `data` value must be
+`mcu-v1-VENDOR-PRODUCT-REVISION-SERIAL`; `image.bin` must be byte-identical
+between packages.
 
-```bash
-cd /opt/can-ota-gateway
-./scripts/verify_isotp.sh awlink0
-```
+Assign one SWU through HawkBit. Required evidence:
 
-Required evidence:
+- only the selected MCU enters UDS programming;
+- the Gateway reads and matches F1A9 before SecurityAccess;
+- the other MCU continues its own heartbeat and receives no download request;
+- the update is serialized and the per-interface lock rejects commissioning;
+- after reset, F1A9, target slot, full MCUboot version and confirmation result
+  form one stable post-reset snapshot.
 
-- single-frame ISO-TP request receives matching `0x7E8` response
-- multi-frame ISO-TP request receives matching `0x7E8` response
-- flow-control profile is recorded as `BS=8`, `STmin=2 ms`
-- timeout handling is explicit; a missing response fails the script
-- link remains `ERROR-ACTIVE` with stable error counters
+Repeat with the other identity.
 
-## Minimal UDS
+## 5. Failure and recovery
 
-Do not start OTA services until minimal UDS passes.
+Before declaring board acceptance, exercise:
 
-Gateway command:
+- signed package targeting an identity absent from the registry;
+- stale registry mapping where the Node-ID answers with another F1A9 identity;
+- malformed registry and missing registry;
+- wrong transfer sequence (NRC 0x73);
+- interruption followed by journal-matched resume;
+- malformed or wrongly signed MCUboot image rejected after reset;
+- confirmation failure followed by MCUboot rollback;
+- power loss while persisting a new registration and during image reception.
 
-```bash
-cd /opt/can-ota-gateway
-./scripts/verify_uds.sh awlink0 .
-```
-
-Required evidence:
-
-- positive `0x10 03` extended diagnostic session response
-- positive `0x10 02` programming session response
-- positive `0x3E 00` TesterPresent response
-- positive `0x22` reads for `0xF180`, `0xF181`, `0xF182`, `0xF1A0`, `0xF1A6`, and `0xF1A8`
-- one negative response path, preferably unsupported DID `0xFFFF`
-- `0x78 ResponsePending` is unit-tested as a generic UDS transaction behavior; OTA erase
-  progress is validated through the `0x31 F001` routine result instead
-- link remains `ERROR-ACTIVE` with stable error counters
-
-## OTA integration
-
-Do not invoke individual download, resume, pre-check, or reset
-services from a board smoke tool. The only integration path is:
-
-```text
-SWUpdate -> mcu-updater -> mcu_update_run_job -> ota_executor
-```
-
-Required evidence:
-
-- positive `0x31 01 F0 01` followed by `0x31 03 F0 01` result `ready`
-- positive `0x34` response with `maxNumberOfBlockLength = 258`, without `0x78`
-- `0x36` responses match block sequence counters starting at `0x01`
-- payload size is `256 B` except the final short block if any
-- positive empty-payload `0x37` response
-- at least one NRC path for invalid length/range or wrong block sequence
-- link remains `ERROR-ACTIVE` with stable error counters
-
-## Architecture Check
-
-Before moving to another validation, confirm the new code keeps these boundaries:
-
-- SocketCAN/device access is isolated from UDS/updater policy.
-- ISO-TP exposes transport operations rather than leaking socket setup into UDS.
-- UDS client logic is separate from package parsing and transfer scheduling.
-- Shared protocol constants are read from `src/profile.h`.
-- No board tool bypasses `ota_executor` to construct a partial OTA flow.
-
-## HIL failure and rollback closure
-
-Do not declare overall OTA validation PASS until the following cases have been
-run against a real MCU. No host fake is a substitute for these checks.
-
-Required evidence:
-
-- checkpoint interruption and reconnect/resume are captured through the prepare routine
-  followed by extended `RequestDownload` journal matching
-- wrong BSC returns NRC `0x73`, and the gateway stops the stream
-- a malformed or wrongly signed image may pass transport pre-check only if its
-  format is valid; after reset MCUboot must reject it and retain the previous slot
-- confirm-missing rollback evidence captures the test-boot version and
-  `F1A8=self-check-failed`, then captures the former slot and version after a
-  second reset
-- link remains `ERROR-ACTIVE` with stable error counters
+No failure may erase or program an MCU whose observed identity differs from the
+signed target identity.

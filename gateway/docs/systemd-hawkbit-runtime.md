@@ -17,10 +17,11 @@ hawkbit.conf -> SWUpdate Suricatta -> HawkBit DDI
 ```
 
 `mcu-updater` no longer starts Wi-Fi, SWUpdate, or the token signer.
-It has exactly one job: bind the SWUpdate Remote Handler endpoint; accept one
+It has exactly one job: bind one SWUpdate Remote Handler endpoint per registered
+LSS identity; accept one
 bounded, already verified `image.bin` stream; derive its SHA-256 for local
 audit and resume identity; publish `package-input-v1` atomically; and run the
-single MCU update state machine in the same process. It does not
+serialized MCU update state machine in the same process. It does not
 implement DDI, HTTP, HawkBit authentication, image signatures, or MCU
 boot policy.
 
@@ -31,7 +32,7 @@ boot policy.
 | `systemd-networkd` + `80-mcu-update-wlan0.network` | DHCP and route maintenance. |
 | `mcu-update-network-online.service` | Blocks DDI start until `wlan0` has a route. |
 | `mcu-update-token-signer.service` | Long-lived OP-TEE signer; it validates the TA key and then drops identity internally. |
-| `mcu-updater.service` | Release-independent resident receiver; every Remote Handler transaction gets an internal UUID and ephemeral job directory. |
+| `mcu-updater.service` | Loads the persistent identity registry and binds one endpoint per MCU; every transaction gets an internal UUID and ephemeral job directory. |
 | `mcu-update-swupdate.service` | Long-lived official SWUpdate 2019.11 Suricatta client, `Restart=always`. |
 
 ## Fixed HawkBit device identity
@@ -66,8 +67,16 @@ DDI or HTTP client.
 ```ini
 MCU_UPDATE_WORK_ROOT=/run/mcu-update/jobs
 MCU_UPDATE_CAN_IFNAME=awlink0
-MCU_UPDATE_REMOTE_ENDPOINT=ipc:///run/mcu-update/remote-handler/mcu-v1
+MCU_UPDATE_REMOTE_ENDPOINT_BASE=ipc:///run/mcu-update/remote-handler/mcu-v1
 ```
+
+This is an endpoint base. The service appends the canonical LSS identity. The
+signed `sw-description` uses the corresponding basename in its `data` field.
+The official SWUpdate 2019.11 build must set
+`CONFIG_SOCKET_REMOTE_HANDLER_DIRECTORY="/run/mcu-update/remote-handler/"`.
+The service keeps `TMPDIR` on the same directory for extraction and for newer
+official versions that resolve the Remote Handler directory from it. No
+Remote Handler source patch is used.
 
 Release size, digest, and transaction identifiers are deliberately absent.
 SWUpdate first verifies the signed description and complete artifact, its
@@ -77,14 +86,14 @@ the received bytes; the update engine recomputes it again as the MCU resume
 payload identity. Temporary job data lives below the systemd runtime directory
 and is removed after each transaction.
 
-This product deliberately does not enable SWUpdate `hardware-compatibility`.
-The product has one fixed MCU target; MCU metadata checks and MCUboot remain
-the relevant target-side gates.
+This product deliberately does not use SWUpdate `hardware-compatibility` for
+individual MCUs. The signed LSS identity selects the MCU; the Gateway verifies
+the same identity through UDS before and after programming. MCUboot remains the
+image authenticity and boot-policy authority.
 
-1. Build the release using `scripts/build_mcu_hawkbit_swu_wsl.sh`. It calls
-   `can/scripts/make_mcu_mcuboot_bundle.py`, which delegates image signing to
-   MCUboot `imgtool`; it then follows the official SWUpdate RSA-PSS + CPIO-CRC
-   creation method and runs `swupdate -c`.
+1. Create `image.bin` only with `E:\T527\can_boot\tools\image.py`. Then build the
+   release using `scripts/build_mcu_hawkbit_swu_wsl.sh`, passing the target LSS
+   identity. The script uses official `swugenerator` and runs `swupdate -c`.
 
 2. Run `scripts/deploy_mcu_update_systemd_adb.ps1` with the SWU public trust
    PEM, root-only `hawkbit.conf`, and root-only WPA configuration. Deployment
@@ -119,7 +128,8 @@ the relevant target-side gates.
 `deploy_mcu_update_systemd_adb.ps1` requires PowerShell 7 and refuses to write
 anything unless PID 1 is `systemd`; systemd-networkd, `nc`, and `/sbin/swupdate`
 exist; inputs hash correctly; the DDI configuration is safe; and the board can
-open TCP to the configured server. The current BusyBox/ADB HIL rootfs is not a
+open TCP to the configured server. It also rejects an SWUpdate binary that
+does not contain the required official Remote Handler directory setting. The current BusyBox/ADB HIL rootfs is not a
 systemd target, so the script fails before staging on that image. Add systemd,
 systemd-networkd and the listed runtime files to the production Buildroot
 image first.

@@ -90,7 +90,8 @@ bool ULogCan_Init(CO_CANmodule_t *CANmodule, CO_CANtx_t *tx_buffer)
 
 bool ULogCan_Poll(void)
 {
-    if (!s_ulog_can_registered || s_tx_buffer->bufferFull)
+    if (!s_ulog_can_registered || !s_can_module->CANnormal ||
+        s_tx_buffer->bufferFull)
     {
         return false;
     }

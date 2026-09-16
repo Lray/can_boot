@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <linux/can/raw.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 
 #include "log_frame.h"
@@ -11,20 +12,25 @@
 
 int main(int argc, char **argv)
 {
-    const struct can_filter filter = {
-        .can_id = MCU_ULOG_CAN_ID,
-        .can_mask = CAN_SFF_MASK,
+    struct can_filter filter = {
+        .can_mask = CAN_SFF_MASK | CAN_EFF_FLAG | CAN_RTR_FLAG,
     };
     LogReceiver_t receiver;
     LogReceiverStats_t stats = {0};
     LogSink_t stdout_sink = {0};
     int fd;
 
-    if (argc != 2) {
-        (void)fprintf(stderr, "usage: %s <ifname>\n", argv[0]);
+    char *end = NULL;
+    unsigned long node_id = 0u;
+    errno = 0;
+    if (argc == 3) node_id = strtoul(argv[2], &end, 10);
+    if (argc != 3 || errno != 0 || end == argv[2] || *end != '\0' ||
+        node_id < CAN_NODE_ID_MIN || node_id > CAN_NODE_ID_MAX) {
+        (void)fprintf(stderr, "usage: %s <ifname> <node-id>\n", argv[0]);
         return 2;
     }
 
+    filter.can_id = CAN_ID_MCU_ULOG(node_id);
     fd = socketcan_raw_open_filtered(argv[1], &filter, 1u);
     if (fd < 0) {
         perror("socketcan_raw_open_filtered");
@@ -41,7 +47,7 @@ int main(int argc, char **argv)
             McuUlogFrame_t frame = {0};
             LogRecordView_t record = {0};
             LogFrameDecodeResult_t frame_result =
-                log_frame_decode(&raw_frame, &frame);
+                log_frame_decode(&raw_frame, filter.can_id, &frame);
 
             if (frame_result == LOG_FRAME_OTHER_CAN_ID) {
                 continue;

@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <sys/types.h>
+#include "shared/mcu_identity.h"
 
 typedef struct
 {
@@ -14,6 +15,7 @@ typedef struct
     gid_t signer_gid;
     gid_t signer_socket_gid;
     uint32_t signer_timeout_ms;
+    uint8_t target_identity[MCU_IDENTITY_SIZE];
 } McuUpdaterDirectOptions_t;
 
 int mcu_updater_direct_args_parse(int argc, char **argv, McuUpdaterDirectOptions_t *options);

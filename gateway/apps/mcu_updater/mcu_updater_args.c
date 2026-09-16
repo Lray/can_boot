@@ -55,7 +55,7 @@ int mcu_updater_args_parse(int argc, char **argv, McuUpdaterOptions_t *options)
         SEEN_SIGNER_SOCKET_GID = 1u << 4,
         SEEN_SIGNER_TIMEOUT = 1u << 5,
         SEEN_CAN_IFNAME = 1u << 6,
-        SEEN_ENDPOINT = 1u << 7,
+        SEEN_ENDPOINT_BASE = 1u << 7,
     };
     unsigned int seen = 0u;
     int index;
@@ -66,7 +66,7 @@ int mcu_updater_args_parse(int argc, char **argv, McuUpdaterOptions_t *options)
     }
     memset(options, 0, sizeof(*options));
     options->can_ifname = MCU_UPDATER_DEFAULT_CAN_IFNAME;
-    options->endpoint = REMOTE_HANDLER_DEFAULT_ENDPOINT;
+    options->endpoint_base = REMOTE_HANDLER_ENDPOINT_BASE;
     for (index = 1; index + 1 < argc; index += 2)
     {
         const char *name = argv[index];
@@ -84,11 +84,11 @@ int mcu_updater_args_parse(int argc, char **argv, McuUpdaterOptions_t *options)
             seen |= SEEN_CAN_IFNAME;
             options->can_ifname = value;
         }
-        else if (strcmp(name, "--endpoint") == 0)
+        else if (strcmp(name, "--endpoint-base") == 0)
         {
-            if ((seen & SEEN_ENDPOINT) != 0u) return -1;
-            seen |= SEEN_ENDPOINT;
-            options->endpoint = value;
+            if ((seen & SEEN_ENDPOINT_BASE) != 0u) return -1;
+            seen |= SEEN_ENDPOINT_BASE;
+            options->endpoint_base = value;
         }
         else if (strcmp(name, "--signer-endpoint") == 0)
         {
@@ -130,7 +130,8 @@ int mcu_updater_args_parse(int argc, char **argv, McuUpdaterOptions_t *options)
 
 int mcu_updater_args_validate(const McuUpdaterOptions_t *options)
 {
-    if (options == NULL || options->work_root == NULL || options->signer_endpoint == NULL ||
+    if (options == NULL || options->work_root == NULL || options->endpoint_base == NULL ||
+        options->signer_endpoint == NULL ||
         options->signer_uid == NULL || options->signer_gid == NULL ||
         options->signer_socket_gid == NULL || options->signer_timeout_ms == NULL)
     {
@@ -160,6 +161,6 @@ void mcu_updater_args_print_usage(const char *program)
             "usage: %s --work-root /abs/path "
             "--signer-endpoint /abs/v1.sock --signer-uid UID --signer-gid GID "
             "--signer-socket-gid GID --signer-timeout-ms N "
-            "[--ifname awlink0] [--endpoint " REMOTE_HANDLER_DEFAULT_ENDPOINT "]\n",
+            "[--ifname awlink0] [--endpoint-base " REMOTE_HANDLER_ENDPOINT_BASE "]\n",
             program);
 }

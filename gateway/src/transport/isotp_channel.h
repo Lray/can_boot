@@ -17,7 +17,6 @@ typedef struct {
     int fd;
 } IsotpChannel;
 
-void isotp_channel_default_config(IsotpChannelConfig *config);
 int isotp_channel_open(IsotpChannel *channel, const char *ifname, const IsotpChannelConfig *config);
 void isotp_channel_close(IsotpChannel *channel);
 const TransportOps *isotp_channel_transport_ops(void);

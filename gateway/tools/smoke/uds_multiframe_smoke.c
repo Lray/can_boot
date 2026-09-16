@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "profile.h"
+#include "util.h"
 #include "uds_client.h"
 #include "isotp_channel.h"
 
@@ -19,7 +20,15 @@ int main(int argc, char **argv)
     size_t i;
     int rc;
 
-    isotp_channel_default_config(&config);
+    unsigned long node_id;
+    if (argc != 3 || util_parse_identity(argv[2], &node_id) != 0 ||
+        node_id < CAN_NODE_ID_MIN || node_id > CAN_NODE_ID_MAX) {
+        fprintf(stderr, "usage: %s <ifname> <node-id>\n", argv[0]);
+        return 2;
+    }
+    config = (IsotpChannelConfig){.request_id = CAN_ID_UDS_REQUEST(node_id),
+        .response_id = CAN_ID_UDS_RESPONSE(node_id),
+        .block_size = ISOTP_BLOCK_SIZE, .stmin_raw = ISOTP_STMIN_MS};
     if (isotp_channel_open(&channel, ifname, &config) != 0) {
         perror("isotp_channel_open");
         return 1;

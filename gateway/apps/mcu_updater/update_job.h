@@ -21,6 +21,7 @@ typedef struct
     gid_t signer_gid;
     gid_t signer_socket_gid;
     uint32_t signer_timeout_ms;
+    const uint8_t *target_identity;
 } McuUpdateConfig_t;
 
 typedef struct

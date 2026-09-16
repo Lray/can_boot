@@ -46,7 +46,7 @@ OtaState_t ota_executor_run(const OtaExecutorConfig_t *config,
     memset(result_out, 0, sizeof(*result_out));
     if (config == NULL || package == NULL ||
         !uds_client_is_ready(config->client) || config->signer == NULL ||
-        config->reconnect == NULL)
+        config->reconnect == NULL || config->expected_identity == NULL)
     {
         return OTA_STATE_PACKAGE_VALIDATED;
     }
@@ -61,7 +61,8 @@ OtaState_t ota_executor_run(const OtaExecutorConfig_t *config,
                              config->reconnect_ctx, start + precheck_window, 0,
                              start + precheck_window,
                              &result_out->before);
-    if (rc != 0)
+    if (rc != 0 || memcmp(result_out->before.identity, config->expected_identity,
+                           MCU_IDENTITY_SIZE) != 0)
     {
         return OTA_STATE_PACKAGE_VALIDATED;
     }
@@ -121,6 +122,10 @@ OtaState_t ota_executor_run(const OtaExecutorConfig_t *config,
     if (rc != 0)
     {
         return OTA_STATE_RECONNECTED;
+    }
+    if (memcmp(result_out->after.identity, config->expected_identity, MCU_IDENTITY_SIZE) != 0)
+    {
+        return OTA_STATE_POST_RESET_CHECKED;
     }
     return classify_post_reset(package, &result_out->after, target_slot);
 }

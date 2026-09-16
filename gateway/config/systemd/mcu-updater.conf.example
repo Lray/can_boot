@@ -3,7 +3,9 @@
 # are deliberately absent and are derived at runtime for every verified image.
 MCU_UPDATE_WORK_ROOT=/run/mcu-update/jobs
 MCU_UPDATE_CAN_IFNAME=awlink0
-MCU_UPDATE_REMOTE_ENDPOINT=ipc:///run/mcu-update/remote-handler/mcu-v1
+# Base path; the updater appends the canonical LSS identity for every
+# registered MCU. sw-description data uses the matching basename.
+MCU_UPDATE_REMOTE_ENDPOINT_BASE=ipc:///run/mcu-update/remote-handler/mcu-v1
 MCU_TOKEN_SIGNER_ENDPOINT=/run/mcu-token-signer/v1.sock
 MCU_TOKEN_SIGNER_UID=200
 MCU_TOKEN_SIGNER_GID=200

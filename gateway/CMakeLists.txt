@@ -49,10 +49,14 @@ target_include_directories(gateway-storage-linux PUBLIC
 )
 target_compile_definitions(gateway-storage-linux PUBLIC _GNU_SOURCE CO_SINGLE_THREAD)
 
+add_library(gateway-mcu-registry STATIC src/registry/mcu_registry.c)
+target_include_directories(gateway-mcu-registry PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/registry)
+target_link_libraries(gateway-mcu-registry PUBLIC gateway-storage-linux)
+
 add_executable(gateway-lss-master
     apps/lss_master/lss_master_main.c
 )
-target_link_libraries(gateway-lss-master PRIVATE gateway-canopen-linux)
+target_link_libraries(gateway-lss-master PRIVATE gateway-canopen-linux gateway-mcu-registry)
 
 add_library(gateway-byte-order STATIC
     src/codec/byte_order.c
@@ -187,7 +191,7 @@ target_include_directories(gateway-mcu-update-app PUBLIC
 target_compile_definitions(gateway-mcu-update-app PRIVATE _GNU_SOURCE)
 target_link_libraries(gateway-mcu-update-app
     PUBLIC gateway-mcu-update-engine
-    PRIVATE rt
+    PRIVATE rt gateway-mcu-registry
 )
 
 add_executable(mcu-updater-direct
@@ -251,6 +255,7 @@ if(ENABLE_SWUPDATE_BRIDGE)
         gateway-bridge-support
         gateway-remote-handler
         gateway-mcu-update-app
+        gateway-mcu-registry
         ${ZMQ_LIBRARY}
     )
 

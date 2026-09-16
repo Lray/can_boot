@@ -10,7 +10,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ArtifactNames = @('mcu-updater-direct', 'token-signer-daemon')
+$ArtifactNames = @('mcu-updater-direct', 'token-signer-daemon', 'gateway-lss-master')
 $SignerUid = 200
 $SignerGid = 200
 $SignerSocketGid = 201
@@ -118,7 +118,7 @@ try {
         "awk -F: '`$3 == $SignerUid { found = 1 } END { exit found ? 0 : 1 }' /etc/passwd; " +
         "awk -F: '`$3 == $SignerGid { found = 1 } END { exit found ? 0 : 1 }' /etc/group; " +
         "awk -F: '`$3 == $SignerSocketGid { found = 1 } END { exit found ? 0 : 1 }' /etc/group; " +
-        "for name in mcu-updater-direct token-signer-daemon; do " +
+        "for name in mcu-updater-direct token-signer-daemon gateway-lss-master; do " +
         "[ ! -e '$remoteBin/'`"`$name`" ] || { [ -f '$remoteBin/'`"`$name`" ] && [ ! -L '$remoteBin/'`"`$name`" ]; }; " +
         "done; " +
         "mkdir '$remoteStage'; chmod 0700 '$remoteStage'"
@@ -142,14 +142,16 @@ try {
     Invoke-Adb shell (
         "set -eu; " +
         "mkdir -p '$remoteBackup'; chmod 0700 '$remoteBackup'; " +
-        "for name in mcu-updater-direct token-signer-daemon; do " +
+        "for name in mcu-updater-direct token-signer-daemon gateway-lss-master; do " +
         "if [ -e '$remoteBin/'`"`$name`" ]; then cp -p '$remoteBin/'`"`$name`" '$remoteBackup/'`"`$name`"; fi; " +
         "done; " +
         "start-stop-daemon -K -x '$remoteBin/token-signer-daemon' -o >/dev/null 2>&1 || true; " +
         "mv -f '$remoteStage/mcu-updater-direct' '$remoteBin/mcu-updater-direct'; " +
         "mv -f '$remoteStage/token-signer-daemon' '$remoteBin/token-signer-daemon'; " +
-        "chown root:root '$remoteBin/mcu-updater-direct' '$remoteBin/token-signer-daemon'; " +
-        "chmod 0755 '$remoteBin/mcu-updater-direct' '$remoteBin/token-signer-daemon'; sync"
+        "mv -f '$remoteStage/gateway-lss-master' '$remoteBin/gateway-lss-master'; " +
+        "chown root:root '$remoteBin/mcu-updater-direct' '$remoteBin/token-signer-daemon' '$remoteBin/gateway-lss-master'; " +
+        "chmod 0755 '$remoteBin/mcu-updater-direct' '$remoteBin/token-signer-daemon' '$remoteBin/gateway-lss-master'; " +
+        "install -d -o root -g root -m 0700 /var/lib/mcu-update/devices /run/mcu-update; sync"
     ) | Out-Null
     foreach ($artifact in $artifacts) {
         $remoteHash = ((Invoke-Adb shell "sha256sum '$remoteBin/$($artifact.Name)'") -join "`n").Split(' ')[0]
@@ -164,7 +166,7 @@ catch {
         # A partial publish is rolled back only from the backup made in this invocation.
         Invoke-AdbResult shell (
             "set -eu; " +
-            "for name in mcu-updater-direct token-signer-daemon; do " +
+            "for name in mcu-updater-direct token-signer-daemon gateway-lss-master; do " +
             "if [ -f '$remoteBackup/'`"`$name`" ] && [ ! -L '$remoteBackup/'`"`$name`" ]; then " +
             "rm -f '$remoteBin/'`"`$name`"; mv -f '$remoteBackup/'`"`$name`" '$remoteBin/'`"`$name`"; fi; " +
             "done; sync"
@@ -174,7 +176,7 @@ catch {
 }
 finally {
     Invoke-AdbResult shell (
-        "rm -f '$remoteStage/mcu-updater-direct' '$remoteStage/token-signer-daemon'; " +
+        "rm -f '$remoteStage/mcu-updater-direct' '$remoteStage/token-signer-daemon' '$remoteStage/gateway-lss-master'; " +
         "rmdir '$remoteStage' 2>/dev/null || true"
     ) | Out-Null
 }

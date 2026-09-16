@@ -1,10 +1,10 @@
-# Single-MCU Update Chain Review
+# Multi-MCU Update Chain Review
 
 ## Decision
 
-The product is a T527 Linux application processor with exactly one
-resource-constrained MCU. The supported design is a single-MCU secure updater,
-not a generic vehicle gateway and not a multi-controller OTA framework.
+The product is a T527 Linux Gateway with multiple registered STM32 MCUs on one
+CAN interface. A signed LSS identity selects one target; the process serializes
+all updates and does not implement a generic parallel OTA scheduler.
 
 ```text
 systemd/network                token-signer-daemon
@@ -16,13 +16,13 @@ SWUpdate Suricatta             OP-TEE signing key
 Remote Handler (ZeroMQ)
        |
        v
-mcu-updater (one production process)
+mcu-updater (one production process, one endpoint per registered identity)
   1. receive one bounded image.bin
   2. enforce announced size and derive SHA-256
   3. fsync and atomically publish
   4. validate MCUboot metadata
   5. authorize the UDS flashing session
-  6. transfer through fixed ISO-TP IDs
+  6. resolve Node-ID, verify DID identity and configure ISO-TP IDs
   7. reconnect and confirm the running image
        |
        v
@@ -47,8 +47,8 @@ transport, execution, and internal failures use distinct non-zero codes.
 
 - SWUpdate remains the only HawkBit/DDI client and signed-SWU verifier.
 - `PackageStore` remains the only streamed-image publication owner.
-- `mcu_update_run_job()` is the application service that joins trusted input,
-  the fixed transport, signer client, and the OTA executor.
+- `mcu_update_run_job()` joins trusted input, registry-selected transport,
+  signer client, observed MCU identity, and the OTA executor.
 - `ota_executor` remains the only OTA lifecycle state machine.
 - The OP-TEE daemon remains a separate least-privilege key service because
   isolation of the private signing key is a real security boundary.
@@ -63,7 +63,6 @@ and it must not be described as a second production update architecture.
 
 ## Deliberate constraints
 
-The fixed CAN interface and `0x7E0/0x7E8` request/response IDs are valid product
-configuration for one MCU. This branch does not add controller manifests,
-dynamic CAN addressing, discovery, CANopen, Uptane, or multi-node scheduling.
-It does not use SWUpdate `hardware-compatibility`.
+The CAN interface is fixed. Official CANopen LSS assigns Node-IDs and the
+project derives UDS/log/heartbeat identifiers from them. Updates remain serial;
+there is no parallel scheduler, SDO stack or SWUpdate `hardware-compatibility`.

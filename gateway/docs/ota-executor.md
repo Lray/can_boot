@@ -13,7 +13,8 @@ and image SHA once before the executor is called. This is a transfer-boundary
 format/integrity check, not a signature, TLV, rollback, or boot-authenticity
 decision. MCUboot on the MCU owns those final decisions.
 
-`ota_executor` then owns, in one sequence: stable MCU observation; extended
+`ota_executor` then owns, in one sequence: stable MCU identity/state observation and
+signed-target identity match; extended
 and programming session entry; SecurityAccess authorization for entering OTA;
 download-preparation routine; extended `0x34` identity binding/resume decision; `0x36/0x37` transfer; hard
 reset; reconnect; and post-reset classification.
@@ -31,7 +32,7 @@ encoding. `0x31 F001` owns erase preparation; `0x34/0x36/0x37` do not erase Flas
 
 The post-reset `DID_APP_VERSION` observation means the version of the image
 currently running on the MCU. Together with active slot and the startup
-confirmation result, it classifies confirmed activation, rollback, failed
+confirmation result and the repeated LSS identity, it classifies confirmed activation, rollback, failed
 confirmation, or an indeterminate outcome. It is a state observation; it is
 not a Gateway boot verifier.
 

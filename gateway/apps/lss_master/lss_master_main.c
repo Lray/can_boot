@@ -1,4 +1,5 @@
 #include "305/CO_LSSmaster.h"
+#include "mcu_registry.h"
 
 #include <errno.h>
 #include <inttypes.h>
@@ -26,19 +27,6 @@ typedef struct {
     uint8_t nodeId;
 } operation_t;
 
-static CO_LSSmaster_return_t
-callOperation(CO_LSSmaster_t* master, operation_t* operation, uint32_t elapsedUs) {
-    switch (operation->kind) {
-        case OP_FASTSCAN: return CO_LSSmaster_IdentifyFastscan(master, elapsedUs, operation->fastscan);
-        case OP_SELECT: return CO_LSSmaster_swStateSelect(master, elapsedUs, operation->address);
-        case OP_INQUIRE_NODE_ID:
-            return CO_LSSmaster_Inquire(master, elapsedUs, CO_LSS_INQUIRE_NODE_ID, operation->value);
-        case OP_CONFIGURE_NODE_ID: return CO_LSSmaster_configureNodeId(master, elapsedUs, operation->nodeId);
-        case OP_STORE: return CO_LSSmaster_configureStore(master, elapsedUs);
-    }
-    return CO_LSSmaster_ILLEGAL_ARGUMENT;
-}
-
 static uint32_t
 elapsedUs(const struct timespec* before, const struct timespec* after) {
     uint64_t elapsed = (uint64_t)(after->tv_sec - before->tv_sec) * UINT64_C(1000000);
@@ -58,14 +46,27 @@ runOperation(CO_LSSmaster_t* master, CO_CANmodule_t* module, int epollFd, operat
         return CO_LSSmaster_SCAN_FAILED;
     }
 
-    CO_LSSmaster_return_t result = callOperation(master, operation, 0);
-    while (result == CO_LSSmaster_WAIT_SLAVE) {
+    uint32_t elapsed = 0;
+    for (;;) {
+        CO_LSSmaster_return_t result;
+        switch (operation->kind) {
+            case OP_FASTSCAN: result = CO_LSSmaster_IdentifyFastscan(master, elapsed, operation->fastscan); break;
+            case OP_SELECT: result = CO_LSSmaster_swStateSelect(master, elapsed, operation->address); break;
+            case OP_INQUIRE_NODE_ID:
+                result = CO_LSSmaster_Inquire(master, elapsed, CO_LSS_INQUIRE_NODE_ID, operation->value); break;
+            case OP_CONFIGURE_NODE_ID: result = CO_LSSmaster_configureNodeId(master, elapsed, operation->nodeId); break;
+            case OP_STORE: result = CO_LSSmaster_configureStore(master, elapsed); break;
+            default: return CO_LSSmaster_ILLEGAL_ARGUMENT;
+        }
+        if (module->CANerrorStatus != 0) return CO_LSSmaster_SCAN_FAILED;
+        if (result != CO_LSSmaster_WAIT_SLAVE) return result;
         struct epoll_event events[4];
         int count = epoll_wait(epollFd, events, 4, 10);
         if (count < 0 && errno != EINTR) {
             return CO_LSSmaster_SCAN_FAILED;
         }
         for (int i = 0; i < count; i++) {
+            if ((events[i].events & (EPOLLERR | EPOLLHUP)) != 0) return CO_LSSmaster_SCAN_FAILED;
             (void)CO_CANrxFromEpoll(module, &events[i], NULL, NULL);
         }
         CO_CANmodule_process(module);
@@ -74,10 +75,9 @@ runOperation(CO_LSSmaster_t* master, CO_CANmodule_t* module, int epollFd, operat
         if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
             return CO_LSSmaster_SCAN_FAILED;
         }
-        result = callOperation(master, operation, elapsedUs(&previous, &now));
+        elapsed = elapsedUs(&previous, &now);
         previous = now;
     }
-    return result;
 }
 
 static bool
@@ -131,9 +131,16 @@ main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
+    McuRegistry registry;
+    int registryResult = mcu_registry_open(&registry, interfaceName, true);
+    if (registryResult != 0) {
+        fprintf(stderr, "Cannot open registry or acquire bus lock: %d\n", registryResult);
+        return EXIT_FAILURE;
+    }
     int epollFd = epoll_create1(EPOLL_CLOEXEC);
     if (epollFd < 0) {
         perror("epoll_create1");
+        mcu_registry_close(&registry);
         return EXIT_FAILURE;
     }
 
@@ -146,6 +153,7 @@ main(int argc, char* argv[]) {
     if (driverError != CO_ERROR_NO) {
         fprintf(stderr, "CO_CANmodule_init failed: %d\n", driverError);
         close(epollFd);
+        mcu_registry_close(&registry);
         return EXIT_FAILURE;
     }
 
@@ -155,6 +163,7 @@ main(int argc, char* argv[]) {
         fprintf(stderr, "CO_LSSmaster_init failed: %d\n", driverError);
         CO_CANmodule_disable(&module);
         close(epollFd);
+        mcu_registry_close(&registry);
         return EXIT_FAILURE;
     }
     CO_CANsetNormalMode(&module);
@@ -162,6 +171,7 @@ main(int argc, char* argv[]) {
         fprintf(stderr, "Unable to enable SocketCAN reception\n");
         CO_CANmodule_disable(&module);
         close(epollFd);
+        mcu_registry_close(&registry);
         return EXIT_FAILURE;
     }
 
@@ -183,6 +193,7 @@ main(int argc, char* argv[]) {
         fprintf(stderr, "LSS selection failed: %d\n", lssResult);
         CO_CANmodule_disable(&module);
         close(epollFd);
+        mcu_registry_close(&registry);
         return EXIT_FAILURE;
     }
 
@@ -194,12 +205,26 @@ main(int argc, char* argv[]) {
     }
 
     uint32_t previousNodeId = 0;
+    registryResult = mcu_registry_check_assignment(&registry, &address, (uint8_t)nodeId);
+    if (registryResult != 0) {
+        fprintf(stderr, "Identity/node-ID registry conflict: %d\n", registryResult);
+        (void)CO_LSSmaster_swStateDeselect(&master);
+        CO_CANmodule_disable(&module);
+        close(epollFd);
+        mcu_registry_close(&registry);
+        return EXIT_FAILURE;
+    }
     operation = (operation_t){.kind = OP_INQUIRE_NODE_ID, .value = &previousNodeId};
     lssResult = runOperation(&master, &module, epollFd, &operation);
     if (lssResult == CO_LSSmaster_OK) {
         printf("Current node-ID: %" PRIu32 "\n", previousNodeId);
-        operation = (operation_t){.kind = OP_CONFIGURE_NODE_ID, .nodeId = (uint8_t)nodeId};
-        lssResult = runOperation(&master, &module, epollFd, &operation);
+        if (previousNodeId != CO_LSS_NODE_ID_ASSIGNMENT && previousNodeId != nodeId) {
+            fprintf(stderr, "Configured node-ID differs; reset/recommission explicitly before registration\n");
+            lssResult = CO_LSSmaster_ILLEGAL_ARGUMENT;
+        } else if (previousNodeId == CO_LSS_NODE_ID_ASSIGNMENT) {
+            operation = (operation_t){.kind = OP_CONFIGURE_NODE_ID, .nodeId = (uint8_t)nodeId};
+            lssResult = runOperation(&master, &module, epollFd, &operation);
+        }
     }
     if (lssResult == CO_LSSmaster_OK) {
         operation = (operation_t){.kind = OP_STORE};
@@ -207,15 +232,37 @@ main(int argc, char* argv[]) {
     }
 
     CO_LSSmaster_return_t deselectResult = CO_LSSmaster_swStateDeselect(&master);
-    if (lssResult != CO_LSSmaster_OK || deselectResult != CO_LSSmaster_OK) {
+    if (lssResult != CO_LSSmaster_OK || deselectResult != CO_LSSmaster_OK || module.CANerrorStatus != 0) {
         fprintf(stderr, "LSS configuration failed: operation=%d deselect=%d\n", lssResult, deselectResult);
         CO_CANmodule_disable(&module);
         close(epollFd);
+        mcu_registry_close(&registry);
         return EXIT_FAILURE;
     }
 
-    printf("Configured and stored node-ID %" PRIu32 "\n", nodeId);
+    /* An unconfigured slave activates its first assignment on deselect.
+     * Wait for its communication reset before checking the active assignment. */
+    struct timespec settle = {.tv_sec = 0, .tv_nsec = 100000000L};
+    while (nanosleep(&settle, &settle) != 0 && errno == EINTR) {}
+    operation = (operation_t){.kind = OP_SELECT, .address = &address};
+    lssResult = runOperation(&master, &module, epollFd, &operation);
+    uint32_t activeNodeId = 0;
+    if (lssResult == CO_LSSmaster_OK) {
+        operation = (operation_t){.kind = OP_INQUIRE_NODE_ID, .value = &activeNodeId};
+        lssResult = runOperation(&master, &module, epollFd, &operation);
+    }
+    deselectResult = CO_LSSmaster_swStateDeselect(&master);
+    int result = EXIT_FAILURE;
+    if (lssResult == CO_LSSmaster_OK && deselectResult == CO_LSSmaster_OK &&
+        module.CANerrorStatus == 0 && activeNodeId == nodeId &&
+        mcu_registry_register(&registry, &address, (uint8_t)nodeId) == 0) {
+        printf("Configured, stored and registered node-ID %" PRIu32 "\n", nodeId);
+        result = EXIT_SUCCESS;
+    } else {
+        fprintf(stderr, "Active assignment verification or registry persistence failed\n");
+    }
     CO_CANmodule_disable(&module);
     close(epollFd);
-    return EXIT_SUCCESS;
+    mcu_registry_close(&registry);
+    return result;
 }

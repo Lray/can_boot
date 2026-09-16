@@ -11,7 +11,8 @@
   STM32 适配仅实现 CAN 发送、毫秒分辨率的微秒单位时钟和调试三个上游端口函数；
   接收帧直接交给上游 `isotp_on_can_message()`。
 - Classic CAN，8-byte CAN DLC，标准 11-bit normal addressing。
-- 物理请求 ID 为 `0x7E0`，响应 ID 为 `0x7E8`；当前不接收 functional addressing、
+- 物理请求 ID 为 `0x600 + active Node-ID`，响应 ID 为 `0x580 + active Node-ID`；
+  Node-ID 仅用于配置 ISO-TP 传输，UDS 服务与 ID 解耦。当前不接收 functional addressing、
   29-bit addressing、extended/mixed addressing 或 CAN FD。
 - ISO-TP 支持 Single Frame、First/Consecutive Frame 和 Flow Control；接收端对
   超出 512-byte 配置缓冲区的 First Frame 返回 `FC(OVFLW)`。
@@ -41,6 +42,8 @@
   它不擦除 Flash，也不发送 `0x78`。
 - `DID_CONFIRM_RESULT (0xF1A8)` 仅报告当前启动的自检与 MCUboot `image_ok`
   写入结果；它不是持久化激活状态。
+- `DID_LSS_IDENTITY (0xF1A9)` 返回 factory identity 的 vendor、product、revision、
+  serial 四个 BE32 字段；网关在写入前后均核对该值。
 - `DID_APP_VERSION` 使用 8 字节完整 MCUboot 版本：`major, minor, revision
   (BE16), build (BE32)`。
 
@@ -62,5 +65,5 @@
 ISO-TP 主机测试直接调用上游 API，覆盖无填充 Single Frame、多帧接收、序号错误、
 接收缓冲区 Overflow、发送填充、BS/STmin 发送节拍以及 `N_Bs/N_Cr` 超时原因。
 UDS/下载测试覆盖正响应抑制、P2* wire 编码、下载准备作业的 `pending`、`ready`
-以及 `0x34` 仅在 ready 后接受。固定寻址及 Classic CAN 限制由
+以及 `0x34` 仅在 ready 后接受。Node-ID 派生寻址及 Classic CAN 限制由
 `can_network.h`、`301/CO_driver.h` 和本文件共同定义。

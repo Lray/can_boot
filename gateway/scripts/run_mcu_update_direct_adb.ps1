@@ -3,6 +3,9 @@ param(
     [string]$AdbPath = 'E:\T527\.local-tools\platform-tools-20260730\platform-tools\adb.exe',
     [string]$Serial = '00675779d0c446e21d4',
     [Parameter(Mandatory = $true)][string]$ImagePath,
+    [Parameter(Mandatory = $true)]
+    [ValidatePattern('^[0-9A-F]{8}:[0-9A-F]{8}:[0-9A-F]{8}:[0-9A-F]{8}$')]
+    [string]$TargetIdentity,
     [string]$RemoteRoot = '/run/media/mmcblk0p6/mcu-update',
     [string]$CanConfigPath = (Join-Path $PSScriptRoot '..\config\systemd\awlink0.conf'),
     [ValidateRange(1, 65535)][int]$SignerUid = 200,
@@ -157,6 +160,7 @@ try {
         "! start-stop-daemon -K -t -x /sbin/swupdate >/dev/null 2>&1; " +
         "! start-stop-daemon -K -t -x '$remoteBin/mcu-updater' >/dev/null 2>&1; " +
         "! start-stop-daemon -K -t -x '$signer' >/dev/null 2>&1; " +
+        "install -d -o root -g root -m 0700 /run/mcu-update /var/lib/mcu-update/devices; " +
         "if [ -e '$jobRoot' ]; then test -d '$jobRoot' && test ! -L '$jobRoot'; else mkdir -p '$jobRoot'; fi; " +
         "chown root:root '$jobRoot'; chmod 0700 '$jobRoot'; " +
         "mkdir '$jobDirectory'; mkdir '$inputDirectory'; " +
@@ -222,6 +226,7 @@ if [ "$socket_ready" -ne 1 ]; then
 fi
 set +e
 '__UPDATER__' --job-dir '__JOB_DIR__' --job-id '__JOB_ID__' --ifname '__CAN_IFNAME__' \
+    --target-identity '__TARGET_IDENTITY__' \
     --signer-endpoint '__SIGNER_ENDPOINT__' --signer-uid __SIGNER_UID__ --signer-gid __SIGNER_GID__ \
     --signer-socket-gid __SOCKET_GID__ --signer-timeout-ms __SIGNER_TIMEOUT_MS__ \
     > '__UPDATER_LOG__' 2>&1
@@ -247,6 +252,7 @@ exit "$updater_status"
         Replace('__JOB_DIR__', $jobDirectory).
         Replace('__JOB_ID__', $JobId).
         Replace('__CAN_IFNAME__', $CanInterface).
+        Replace('__TARGET_IDENTITY__', $TargetIdentity).
         Replace('__SIGNER_TIMEOUT_MS__', [string]$SignerTimeoutMs).
         Replace('__UPDATER_LOG__', $updaterLog)
     $updaterResult = Invoke-AdbResult shell $directCommand

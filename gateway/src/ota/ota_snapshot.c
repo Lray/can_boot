@@ -1,6 +1,7 @@
 #include "ota_snapshot.h"
 
 #include <time.h>
+#include <string.h>
 
 #include "byte_order.h"
 #include "profile.h"
@@ -11,11 +12,17 @@
 
 static int read_snapshot(UdsClient *client, McuSnapshot_t *snapshot_out)
 {
-    uint8_t value[8] = {0};
+    uint8_t value[MCU_IDENTITY_SIZE] = {0};
     size_t value_len = 0u;
     uint64_t start = util_monotonic_ms();
     int rc = 0;
 
+    rc = uds_read_did(client, DID_LSS_IDENTITY, value, sizeof(value), &value_len);
+    if (rc != 0 || value_len != MCU_IDENTITY_SIZE)
+    {
+        return rc != 0 ? rc : UDS_ERR_MALFORMED_RESPONSE;
+    }
+    memcpy(snapshot_out->identity, value, MCU_IDENTITY_SIZE);
     rc = uds_read_did(client, DID_ACTIVE_SLOT, value, sizeof(value),
                       &value_len);
     if (rc != 0 || value_len != 1u || value[0] > 1u)
@@ -70,7 +77,8 @@ int read_snapshot_twice(UdsClient *client, UdsReconnectFn_t reconnect,
                 return UDS_ERR_TIMEOUT;
             }
             rc = read_snapshot(client, &second);
-            if (rc == 0 && first.active_slot == second.active_slot &&
+            if (rc == 0 && memcmp(first.identity, second.identity, MCU_IDENTITY_SIZE) == 0 &&
+                first.active_slot == second.active_slot &&
                 mcuboot_image_version_equal(&first.app_version,
                                             &second.app_version) &&
                 first.confirm_result == second.confirm_result)

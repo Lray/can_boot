@@ -1,8 +1,8 @@
 # ULog raw-CAN protocol
 
 The MCU's ULog backend sends live text logs to the Gateway on standard CAN ID
-`0x6D0`.  This is a proprietary MCU-to-Gateway broadcast and is not an ISO-TP
-or UDS message: it never shares the `0x7E0` request or `0x7E8` response path.
+`0x680 + active Node-ID`. This is a proprietary MCU-to-Gateway broadcast and
+is not an ISO-TP or UDS message.
 
 On the MCU, RT-Thread keeps the ULog asynchronous formatter, the raw-CAN log
 transmitter, and the update/UDS thread as separate execution contexts.  The log
@@ -14,7 +14,7 @@ cannot corrupt an OTA response.
 Runtime queues, HAL callbacks, and BUS-OFF handling live in
 `transport/CO_driver_STM32.c`; `fdcan.h` exposes the single HAL-handle accessor
 while keeping the handle owned by the generated file.
-The periodic `0x700` system heartbeat is emitted by its own RT-Thread task,
+The periodic `0x700 + active Node-ID` heartbeat is emitted by its own RT-Thread task,
 separate from both the update/UDS thread and the ULog CAN transmitter.  It is a
 project-specific, CANopen-inspired liveness frame with DLC `1` and state byte
 `0x05`; it is not a transport-statistics channel or a complete CANopen NMT
@@ -37,9 +37,9 @@ out-of-order, oversized, or superseded by a new start frame.
 Run the independent Gateway receiver as:
 
 ```sh
-gateway-mcu-ulog-receiver <can-interface>
+gateway-log-receiver <can-interface> <node-id>
 ```
 
-It opens a second SocketCAN raw socket filtered only to `0x6D0`, so an OTA
+It opens a second SocketCAN raw socket filtered only to that node's log ID, so an OTA
 thread can continue to own its ISO-TP socket without parsing or back-pressuring
 live MCU logs.

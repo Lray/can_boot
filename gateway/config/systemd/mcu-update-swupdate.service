@@ -7,6 +7,7 @@ ConditionPathExists=/sbin/swupdate
 
 [Service]
 Type=simple
+Environment=TMPDIR=/run/mcu-update/remote-handler/
 EnvironmentFile=/etc/mcu-update/hawkbit.conf
 ExecStartPre=/usr/libexec/mcu-update/wait-for-remote-handler
 ExecStart=/usr/libexec/mcu-update/swupdate-suricatta

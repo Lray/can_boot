@@ -106,12 +106,11 @@ fingerprints only; never log a seed, signature, token, or key material.
 
 ## Release gates
 
-- `can/scripts/make_mcu_mcuboot_bundle.py` is the sole image builder. It calls
-  MCUboot `imgtool`, verifies header/TLV/trailer invariants, and creates the
-  final full-slot `image.bin`.
+- `E:\T527\can_boot\tools\image.py` is the sole MCU image builder and signer.
+  The repository SWU builder accepts its completed `image.bin` without modifying it.
 - `gateway/scripts/build_mcu_hawkbit_swu_wsl.sh` is the sole SWU builder. It
-  follows official SWUpdate RSA-PSS + CPIO-CRC ordering and validates with
-  `swupdate -c`.
+  uses official `swugenerator`, targets one canonical LSS identity, signs with
+  the only keys under `E:\T527\can_boot\key`, and validates with `swupdate -c`.
 - SWUpdate's signed description binds the final `image.bin` digest. The
   hardened Remote Handler forwards only after complete verification; the
   receiver and update engine derive the digest again for transport consistency

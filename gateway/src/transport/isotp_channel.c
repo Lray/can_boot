@@ -9,19 +9,6 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include "profile.h"
-
-void isotp_channel_default_config(IsotpChannelConfig *config)
-{
-    if (config == NULL) {
-        return;
-    }
-    config->request_id = CAN_ID_UDS_REQUEST;
-    config->response_id = CAN_ID_UDS_RESPONSE;
-    config->block_size = ISOTP_BLOCK_SIZE;
-    config->stmin_raw = ISOTP_STMIN_MS;
-}
-
 static int isotp_channel_validate_config(const IsotpChannelConfig *config)
 {
     if (config == NULL)
@@ -51,7 +38,7 @@ int isotp_channel_open(IsotpChannel *channel, const char *ifname, const IsotpCha
         return -1;
     }
 
-    fd = socket(PF_CAN, SOCK_DGRAM, CAN_ISOTP);
+    fd = socket(PF_CAN, SOCK_DGRAM | SOCK_CLOEXEC, CAN_ISOTP);
     if (fd < 0) {
         return -1;
     }

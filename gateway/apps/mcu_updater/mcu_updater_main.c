@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -11,13 +12,23 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <zmq.h>
 
 #include "update_job.h"
 #include "package_store.h"
 #include "mcu_updater_args.h"
 #include "remote_handler.h"
+#include "byte_order.h"
+#include "mcu_registry.h"
+#include "shared/mcu_identity.h"
 
 #define MCU_UPDATER_JOB_ID_SIZE 37u
+
+typedef struct
+{
+    RemoteHandler_t handler;
+    uint8_t identity[MCU_IDENTITY_SIZE];
+} McuEndpoint_t;
 
 static int harden_process(void)
 {
@@ -98,7 +109,9 @@ static int create_job_directory(int root_fd, const char *work_root,
     return -1;
 }
 
-static void make_mcu_config(const McuUpdaterOptions_t *options, McuUpdateConfig_t *config)
+static void make_mcu_config(const McuUpdaterOptions_t *options,
+                            const uint8_t identity[MCU_IDENTITY_SIZE],
+                            McuUpdateConfig_t *config)
 {
     memset(config, 0, sizeof(*config));
     config->can_ifname = options->can_ifname;
@@ -107,6 +120,79 @@ static void make_mcu_config(const McuUpdaterOptions_t *options, McuUpdateConfig_
     config->signer_gid = (gid_t)strtoul(options->signer_gid, NULL, 10);
     config->signer_socket_gid = (gid_t)strtoul(options->signer_socket_gid, NULL, 10);
     config->signer_timeout_ms = (uint32_t)strtoul(options->signer_timeout_ms, NULL, 10);
+    config->target_identity = identity;
+}
+
+static void close_endpoints(McuEndpoint_t endpoints[], size_t count)
+{
+    while (count > 0u)
+    {
+        remote_handler_close(&endpoints[--count].handler);
+    }
+}
+
+static int open_endpoints(const McuUpdaterOptions_t *options,
+                          McuEndpoint_t endpoints[], size_t *count_out)
+{
+    McuRegistry registry;
+    size_t index;
+    size_t registered_count;
+    int rc = mcu_registry_open(&registry, options->can_ifname, false);
+
+    if (rc != 0 || registry.count == 0u)
+    {
+        if (rc == 0) mcu_registry_close(&registry);
+        return -1;
+    }
+    registered_count = registry.count;
+    for (index = 0u; index < registered_count; ++index)
+    {
+        const CO_LSS_address_t *identity = &registry.devices[index].identity;
+        char endpoint[sizeof(endpoints[index].handler.endpoint_path)];
+        int length = snprintf(endpoint, sizeof(endpoint),
+                              "%s-%08" PRIX32 "-%08" PRIX32 "-%08" PRIX32 "-%08" PRIX32,
+                              options->endpoint_base, identity->identity.vendorID,
+                              identity->identity.productCode,
+                              identity->identity.revisionNumber,
+                              identity->identity.serialNumber);
+
+        if (length <= 0 || (size_t)length >= sizeof(endpoint)) break;
+        for (size_t field = 0u; field < 4u; ++field)
+        {
+            byte_order_put_u32_be(endpoints[index].identity + field * 4u,
+                                  identity->addr[field]);
+        }
+        if (remote_handler_init(&endpoints[index].handler, endpoint, INT_MAX) != 0) break;
+    }
+    mcu_registry_close(&registry);
+    if (index == 0u || index != registered_count)
+    {
+        close_endpoints(endpoints, index);
+        return -1;
+    }
+    *count_out = index;
+    return 0;
+}
+
+static McuEndpoint_t *wait_endpoint(McuEndpoint_t endpoints[], size_t count)
+{
+    zmq_pollitem_t items[MCU_REGISTRY_CAPACITY];
+
+    for (size_t index = 0u; index < count; ++index)
+    {
+        items[index] = (zmq_pollitem_t){.socket = endpoints[index].handler.socket,
+                                       .events = ZMQ_POLLIN};
+    }
+    for (;;)
+    {
+        int rc = zmq_poll(items, (int)count, -1);
+        if (rc < 0 && errno == EINTR) continue;
+        if (rc <= 0) return NULL;
+        for (size_t index = 0u; index < count; ++index)
+        {
+            if ((items[index].revents & ZMQ_POLLIN) != 0) return &endpoints[index];
+        }
+    }
 }
 
 static void log_image_digest(const char *job_id, const PackageStore_t *store)
@@ -126,10 +212,10 @@ static void log_image_digest(const char *job_id, const PackageStore_t *store)
 int main(int argc, char **argv)
 {
     McuUpdaterOptions_t options;
-    RemoteHandler_t handler = {0};
+    McuEndpoint_t endpoints[MCU_REGISTRY_CAPACITY] = {0};
+    size_t endpoint_count = 0u;
     struct stat root_stat;
     int root_fd = -1;
-    int handler_ready = 0;
 
     if (mcu_updater_args_parse(argc, argv, &options) != 0 || harden_process() != 0)
     {
@@ -148,13 +234,12 @@ int main(int argc, char **argv)
         fprintf(stderr, "mcu-updater: unsafe work root\n");
         goto out;
     }
-    if (remote_handler_init(&handler, options.endpoint, INT_MAX) != 0)
+    if (open_endpoints(&options, endpoints, &endpoint_count) != 0)
     {
-        fprintf(stderr, "mcu-updater: cannot bind remote handler endpoint\n");
+        fprintf(stderr, "mcu-updater: cannot bind registered target endpoints\n");
         goto out;
     }
-    handler_ready = 1;
-    fprintf(stderr, "mcu-updater: READY\n");
+    fprintf(stderr, "mcu-updater: READY targets=%zu\n", endpoint_count);
 
     for (;;)
     {
@@ -168,9 +253,11 @@ int main(int argc, char **argv)
         int store_ready = 0;
         int final_reply_sent = 0;
         int rc;
+        McuEndpoint_t *endpoint = wait_endpoint(endpoints, endpoint_count);
 
         memset(&store, 0, sizeof(store));
-        if (remote_handler_receive(&handler, command, sizeof(command), body, sizeof(body),
+        if (endpoint == NULL ||
+            remote_handler_receive(&endpoint->handler, command, sizeof(command), body, sizeof(body),
                                    &body_len) != 0)
         {
             fprintf(stderr, "mcu-updater: remote receive failure\n");
@@ -181,7 +268,7 @@ int main(int argc, char **argv)
                                  sizeof(job_path), &job_fd) != 0 ||
             package_store_init(&store, job_fd) != 0)
         {
-            (void)remote_handler_reply(&handler, "NACK");
+            (void)remote_handler_reply(&endpoint->handler, "NACK");
             if (job_fd >= 0)
             {
                 (void)close(job_fd);
@@ -197,12 +284,12 @@ int main(int argc, char **argv)
             int reply_len = snprintf(reply, sizeof(reply), "ACK:%u", MCU_UPDATE_REMOTE_WAIT_MS);
 
             rc = reply_len > 0 && (size_t)reply_len < sizeof(reply)
-                     ? remote_handler_reply(&handler, reply)
+                     ? remote_handler_reply(&endpoint->handler, reply)
                      : -1;
         }
         else
         {
-            (void)remote_handler_reply(&handler, "NACK");
+            (void)remote_handler_reply(&endpoint->handler, "NACK");
         }
 
         while (rc == 0 && store.state == PACKAGE_STORE_RECEIVING)
@@ -211,7 +298,7 @@ int main(int argc, char **argv)
             McuUpdateResult_t result = {0};
             int update_rc;
 
-            if (remote_handler_receive(&handler, command, sizeof(command), body, sizeof(body),
+            if (remote_handler_receive(&endpoint->handler, command, sizeof(command), body, sizeof(body),
                                        &body_len) != 0)
             {
                 rc = -1;
@@ -220,19 +307,19 @@ int main(int argc, char **argv)
             rc = package_store_handle_data(&store, command, strlen(command), body, body_len);
             if (rc == 0 && store.state == PACKAGE_STORE_RECEIVING)
             {
-                rc = remote_handler_reply(&handler, "ACK");
+                rc = remote_handler_reply(&endpoint->handler, "ACK");
                 continue;
             }
             if (rc != 0)
             {
-                (void)remote_handler_reply(&handler, "NACK");
+                (void)remote_handler_reply(&endpoint->handler, "NACK");
                 break;
             }
             log_image_digest(job_id, &store);
-            make_mcu_config(&options, &config);
+            make_mcu_config(&options, endpoint->identity, &config);
             update_rc = mcu_update_run_job(job_path, &config, &result);
             mcu_update_log_result("mcu-updater", update_rc, &result);
-            rc = remote_handler_reply(&handler, update_rc == 0 ? "ACK" : "NACK");
+            rc = remote_handler_reply(&endpoint->handler, update_rc == 0 ? "ACK" : "NACK");
             final_reply_sent = rc == 0;
         }
 
@@ -256,10 +343,7 @@ int main(int argc, char **argv)
     }
 
 out:
-    if (handler_ready)
-    {
-        remote_handler_close(&handler);
-    }
+    close_endpoints(endpoints, endpoint_count);
     if (root_fd >= 0)
     {
         (void)close(root_fd);

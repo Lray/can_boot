@@ -1,14 +1,15 @@
 #!/bin/sh
 set -efu
 
-endpoint=/run/mcu-update/remote-handler/mcu-v1
 attempt=0
 
 while [ "$attempt" -lt 30 ]; do
-    [ -S "$endpoint" ] && exit 0
+    for endpoint in /run/mcu-update/remote-handler/mcu-v1-*; do
+        [ -S "$endpoint" ] && exit 0
+    done
     attempt=$((attempt + 1))
     sleep 1
 done
 
-printf '%s\n' 'mcu-update: Remote Handler endpoint did not become ready' >&2
+printf '%s\n' 'mcu-update: no registered MCU endpoint became ready' >&2
 exit 1

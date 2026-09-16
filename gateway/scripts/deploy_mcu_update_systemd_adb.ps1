@@ -19,7 +19,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ArtifactNames = @('mcu-updater', 'token-signer-daemon')
+$ArtifactNames = @('mcu-updater', 'token-signer-daemon', 'gateway-lss-master')
 $ConfigRoot = Join-Path $PSScriptRoot '..\config'
 $UnitRoot = Join-Path $ConfigRoot 'systemd'
 $RuntimeScripts = @('swupdate-suricatta', 'wait-for-remote-handler', 'wait-for-token-signer')
@@ -160,6 +160,7 @@ Invoke-AdbShell 'test "$(cat /proc/1/comm)" = systemd'
 Invoke-AdbShell 'command -v systemctl >/dev/null && command -v install >/dev/null && command -v nc >/dev/null && test -x /usr/sbin/ip && test -x /usr/sbin/wpa_supplicant && test -x /usr/lib/systemd/systemd-networkd-wait-online'
 Invoke-AdbShell 'systemctl cat tee-supplicant.service >/dev/null'
 Invoke-AdbShell "test -x /sbin/swupdate && test -d '$RemoteRoot' && test ! -L '$RemoteRoot'"
+Invoke-AdbShell "grep -Fq '/run/mcu-update/remote-handler/' /sbin/swupdate"
 
 $localStage = Join-Path ([IO.Path]::GetTempPath()) ('mcu-update-systemd-' + [guid]::NewGuid().ToString('N'))
 $remoteStage = '/data/local/tmp/mcu-update-systemd-' + [guid]::NewGuid().ToString('N')
@@ -168,7 +169,7 @@ try {
     $updaterConfig = @(
         'MCU_UPDATE_WORK_ROOT=/run/mcu-update/jobs',
         "MCU_UPDATE_CAN_IFNAME=$CanInterface",
-        'MCU_UPDATE_REMOTE_ENDPOINT=ipc:///run/mcu-update/remote-handler/mcu-v1',
+        'MCU_UPDATE_REMOTE_ENDPOINT_BASE=ipc:///run/mcu-update/remote-handler/mcu-v1',
         'MCU_TOKEN_SIGNER_ENDPOINT=/run/mcu-token-signer/v1.sock',
         "MCU_TOKEN_SIGNER_UID=$SignerUid",
         "MCU_TOKEN_SIGNER_GID=$SignerGid",
@@ -211,7 +212,7 @@ try {
     Invoke-AdbShell 'for unit_path in /etc/systemd/system/*-swupdate.service; do test -f "$unit_path" || continue; grep -q "remote-handler" "$unit_path" || continue; unit=${unit_path##*/}; test "$unit" != mcu-update-swupdate.service || continue; prefix=${unit%-swupdate.service}; case "$prefix" in ""|*[!A-Za-z0-9._-]*) exit 1 ;; esac; for legacy_unit in /etc/systemd/system/"$prefix"-*.service; do test -f "$legacy_unit" || continue; legacy_name=${legacy_unit##*/}; systemctl stop "$legacy_name" 2>/dev/null || true; systemctl disable "$legacy_name" 2>/dev/null || true; rm -f "$legacy_unit"; done; rm -f /etc/systemd/network/80-"$prefix"-wlan0.network; for legacy_root in /etc/"$prefix" /usr/libexec/"$prefix" /run/media/mmcblk0p6/"$prefix"; do if test -e "$legacy_root"; then test ! -L "$legacy_root" || exit 1; test ! -e "$legacy_root.retired" || exit 1; mv "$legacy_root" "$legacy_root.retired" || exit 1; fi; done; done; systemctl daemon-reload'
     Invoke-AdbShell 'systemctl stop mcu-update-swupdate.service mcu-updater.service 2>/dev/null || true'
     Invoke-AdbShell "install -d -o root -g root -m 0750 '$RemoteRoot/bin' /usr/libexec/mcu-update /etc/mcu-update /etc/mcu-update/trust /etc/systemd/system /etc/systemd/network"
-    Invoke-AdbShell "install -o root -g root -m 0755 '$remoteStage/bin/mcu-updater' '$RemoteRoot/bin/mcu-updater'; install -o root -g root -m 0755 '$remoteStage/bin/token-signer-daemon' '$RemoteRoot/bin/token-signer-daemon'"
+    Invoke-AdbShell "install -o root -g root -m 0755 '$remoteStage/bin/mcu-updater' '$RemoteRoot/bin/mcu-updater'; install -o root -g root -m 0755 '$remoteStage/bin/token-signer-daemon' '$RemoteRoot/bin/token-signer-daemon'; install -o root -g root -m 0755 '$remoteStage/bin/gateway-lss-master' '$RemoteRoot/bin/gateway-lss-master'; install -d -o root -g root -m 0700 /var/lib/mcu-update/devices /run/mcu-update"
     Invoke-AdbShell "install -o root -g root -m 0755 '$remoteStage/libexec/swupdate-suricatta' /usr/libexec/mcu-update/swupdate-suricatta; install -o root -g root -m 0755 '$remoteStage/libexec/wait-for-remote-handler' /usr/libexec/mcu-update/wait-for-remote-handler; install -o root -g root -m 0755 '$remoteStage/libexec/wait-for-token-signer' /usr/libexec/mcu-update/wait-for-token-signer"
     Invoke-AdbShell "install -o root -g root -m 0644 '$remoteStage/systemd/mcu-update-wifi.service' /etc/systemd/system/mcu-update-wifi.service; install -o root -g root -m 0644 '$remoteStage/systemd/mcu-update-wpa-supplicant.service' /etc/systemd/system/mcu-update-wpa-supplicant.service; install -o root -g root -m 0644 '$remoteStage/systemd/mcu-update-network-online.service' /etc/systemd/system/mcu-update-network-online.service; install -o root -g root -m 0644 '$remoteStage/systemd/mcu-update-token-signer.service' /etc/systemd/system/mcu-update-token-signer.service; install -o root -g root -m 0644 '$remoteStage/systemd/mcu-updater.service' /etc/systemd/system/mcu-updater.service; install -o root -g root -m 0644 '$remoteStage/systemd/mcu-update-swupdate.service' /etc/systemd/system/mcu-update-swupdate.service; install -o root -g root -m 0644 '$remoteStage/systemd/80-mcu-update-wlan0.network' /etc/systemd/network/80-mcu-update-wlan0.network"
     Invoke-AdbShell "install -o root -g root -m 0600 '$remoteStage/config/hawkbit.conf' /etc/mcu-update/hawkbit.conf; install -o root -g root -m 0600 '$remoteStage/config/wpa_supplicant.conf' /etc/mcu-update/wpa_supplicant.conf; install -o root -g root -m 0640 '$remoteStage/config/mcu-updater.conf' /etc/mcu-update/mcu-updater.conf; install -o root -g root -m 0640 '$remoteStage/config/signer.conf' /etc/mcu-update/signer.conf; install -o root -g root -m 0640 '$remoteStage/config/wifi.conf' /etc/mcu-update/wifi.conf; install -o root -g root -m 0400 '$remoteStage/trust/swu-release.pem' /etc/mcu-update/trust/swu-release.pem"

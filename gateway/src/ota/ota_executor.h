@@ -26,6 +26,7 @@ typedef struct
     UdsReconnectFn_t reconnect;
     void *reconnect_ctx;
     const TokenSignerClient_t *signer;
+    const uint8_t *expected_identity;
     uint32_t precheck_deadline_ms;
     uint32_t post_reset_deadline_ms;
 } OtaExecutorConfig_t;

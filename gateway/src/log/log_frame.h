@@ -9,7 +9,6 @@
 
 struct can_frame;
 
-#define MCU_ULOG_CAN_ID CAN_ID_MCU_ULOG
 #define MCU_ULOG_FRAME_HEADER_SIZE 1u
 #define MCU_ULOG_FRAME_PAYLOAD_SIZE MCU_LOG_CAN_PAYLOAD_SIZE
 #define MCU_ULOG_MAX_FRAGMENTS MCU_LOG_CAN_MAX_FRAGMENTS
@@ -35,6 +34,7 @@ typedef enum {
 /* Decodes one raw SocketCAN frame without performing record reassembly. */
 LogFrameDecodeResult_t log_frame_decode(
     const struct can_frame *raw_frame,
+    uint32_t expected_can_id,
     McuUlogFrame_t *decoded_frame);
 
 /* Reads the protocol control bits from an already decoded frame. */

@@ -27,6 +27,7 @@ int main(int argc, char **argv)
         return MCU_UPDATE_EXIT_INTERNAL;
     }
     config.can_ifname = options.ifname;
+    config.target_identity = options.target_identity;
     config.signer_endpoint = options.signer_endpoint;
     config.signer_uid = options.signer_uid;
     config.signer_gid = options.signer_gid;

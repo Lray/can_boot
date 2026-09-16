@@ -1,6 +1,7 @@
 #include "update_job.h"
 
 #include <fcntl.h>
+#include <inttypes.h>
 #include <limits.h>
 #include <signal.h>
 #include <stdio.h>
@@ -16,6 +17,8 @@
 #include "token_signer_client.h"
 #include "uds_client.h"
 #include "util.h"
+#include "mcu_registry.h"
+#include "byte_order.h"
 
 typedef struct
 {
@@ -180,9 +183,13 @@ int mcu_update_run_job(const char *job_dir, const McuUpdateConfig_t *config,
     char image_path[PATH_MAX] = {0};
     int input_fd = -1;
     int rc = MCU_UPDATE_EXIT_PACKAGE_POLICY;
+    McuRegistry registry = {.lock_fd = -1};
+    CO_LSS_address_t identity;
+    uint8_t node_id;
 
     if (job_dir == NULL || config == NULL || result_out == NULL ||
-        config->can_ifname == NULL || config->signer_endpoint == NULL)
+        config->can_ifname == NULL || config->signer_endpoint == NULL ||
+        config->target_identity == NULL)
     {
         return MCU_UPDATE_EXIT_INTERNAL;
     }
@@ -197,6 +204,22 @@ int mcu_update_run_job(const char *job_dir, const McuUpdateConfig_t *config,
     {
         goto out;
     }
+    for (size_t i = 0; i < 4; ++i)
+    {
+        identity.addr[i] = byte_order_get_u32_be(config->target_identity + i * 4);
+    }
+    if (mcu_registry_open(&registry, config->can_ifname, false) != 0 ||
+        mcu_registry_lookup(&registry, &identity, &node_id) != 0)
+    {
+        fprintf(stderr, "mcu-updater: target not registered, registry invalid or bus busy\n");
+        goto out;
+    }
+    fprintf(stderr,
+            "mcu-updater: target=%08" PRIX32 ":%08" PRIX32 ":%08" PRIX32 ":%08" PRIX32
+            " node-id=%u\n",
+            identity.identity.vendorID, identity.identity.productCode,
+            identity.identity.revisionNumber, identity.identity.serialNumber,
+            (unsigned int)node_id);
     if (config->signer_uid == 0u || config->signer_gid == 0u ||
         config->signer_socket_gid == 0u)
     {
@@ -213,7 +236,10 @@ int mcu_update_run_job(const char *job_dir, const McuUpdateConfig_t *config,
                             ? config->signer_timeout_ms
                             : TOKEN_SIGNER_DEFAULT_TIMEOUT_MS;
 
-    isotp_channel_default_config(&reconnect.config);
+    reconnect.config = (IsotpChannelConfig){
+        .request_id = CAN_ID_UDS_REQUEST(node_id),
+        .response_id = CAN_ID_UDS_RESPONSE(node_id),
+        .block_size = ISOTP_BLOCK_SIZE, .stmin_raw = ISOTP_STMIN_MS};
     reconnect.channel = &channel;
     reconnect.ifname = config->can_ifname;
     if (isotp_channel_open(&channel, config->can_ifname, &reconnect.config) != 0)
@@ -227,6 +253,7 @@ int mcu_update_run_job(const char *job_dir, const McuUpdateConfig_t *config,
     executor_config.reconnect = reconnect_isotp;
     executor_config.reconnect_ctx = &reconnect;
     executor_config.signer = &signer;
+    executor_config.expected_identity = config->target_identity;
     result_out->has_executor_result = 1;
     result_out->terminal_state = ota_executor_run(&executor_config, &package,
                                                    &result_out->executor);
@@ -235,6 +262,7 @@ int mcu_update_run_job(const char *job_dir, const McuUpdateConfig_t *config,
              : MCU_UPDATE_EXIT_EXECUTION;
 
 out:
+    mcu_registry_close(&registry);
     disarm_update_watchdog(&watchdog);
     isotp_channel_close(&channel);
     ota_package_release(&package);

@@ -5,12 +5,13 @@
 
 LogFrameDecodeResult_t log_frame_decode(
     const struct can_frame *raw_frame,
+    uint32_t expected_can_id,
     McuUlogFrame_t *decoded_frame)
 {
     if (raw_frame == NULL || decoded_frame == NULL) {
         return LOG_FRAME_MALFORMED;
     }
-    if (raw_frame->can_id != MCU_ULOG_CAN_ID) {
+    if (raw_frame->can_id != expected_can_id) {
         return LOG_FRAME_OTHER_CAN_ID;
     }
     if (raw_frame->can_dlc < MCU_ULOG_FRAME_HEADER_SIZE ||

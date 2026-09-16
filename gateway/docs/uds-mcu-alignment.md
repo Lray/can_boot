@@ -6,7 +6,8 @@ gateway 是 MCU 的 UDS client，不是第二个 UDS server。它不生成 `0x78
 
 ## 传输与寻址
 
-- Classic CAN、11-bit normal addressing：请求 `0x7E0`，响应 `0x7E8`，500 kbit/s。
+- Classic CAN、11-bit normal addressing：请求 `0x600 + Node-ID`，响应
+  `0x580 + Node-ID`，500 kbit/s。Node-ID 只配置传输层，UDS 服务保持与 CAN ID 解耦。
 - Linux SocketCAN ISO-TP 接收 Flow Control 默认为 `BS=8`、`STmin=2 ms`。配置同时接受
   ISO 15765-2 允许的 `BS=0` 和 `STmin=0x00..0x7F`、`0xF1..0xF9` 编码。
 - SocketCAN 将一个完整 ISO-TP PDU 交给 UDS client；若内核报告截断，UDS client 将其作为
@@ -53,6 +54,5 @@ P2/P2*、`0x78`、NRC 长度与事务上限逻辑。
 `0x31 03 F0 01` 直到结果为 `ready`，再发送扩展 `0x34`。`0x34` 仅绑定描述符、
 返回目标槽与恢复偏移；它不会擦除 Flash 或返回 `0x78`。
 
-相关 host tests 位于 `tests/test_uds_client.c` 和 `tests/test_isotp_channel.c`：它们覆盖 P2* wire
-解码、会话协商时序、首个与重复 `0x78`、8 个 pending 上限、畸形 NRC，以及 ISO-TP Flow
-Control 编码范围；`tests/test_resume_transfer.c` 还覆盖下载准备例程到 `0x34` 的顺序。
+板端验收必须覆盖 P2* wire 解码、会话协商、`0x78` 上限、畸形 NRC、ISO-TP Flow
+Control 范围，以及下载准备例程到 `0x34` 的顺序。

@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "shared/mcuboot_image_version.h"
+#include "shared/mcu_identity.h"
 #include "uds_client.h"
 
 /** First post-reset snapshot stability window cap in milliseconds. */
@@ -11,6 +12,7 @@
 
 typedef struct
 {
+    uint8_t identity[MCU_IDENTITY_SIZE];
     uint8_t active_slot;
     mcuboot_image_version_t app_version;
     uint8_t confirm_result;

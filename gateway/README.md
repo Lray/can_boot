@@ -1,15 +1,15 @@
-# Single-MCU Secure Updater
+# Multi-MCU Secure Updater
 
-面向 T527 Linux + 单个 STM32U5 MCU 的高可靠安全升级组件。生产链路使用
-hawkBit/SWUpdate 接收和验证发布包，经固定 SocketCAN/ISO-TP/UDS 通道更新唯一 MCU，
-并由 MCUboot 完成镜像签名、安全计数器、A/B 启动和回滚裁决。
+面向 T527 Linux 网关与多个 STM32U5 MCU 的安全升级组件。生产链路使用
+hawkBit/SWUpdate 验证发布包，通过签名 `sw-description` 中的 LSS 身份选择 MCU，
+再经该 MCU Node-ID 派生的 SocketCAN/ISO-TP 通道升级。MCUboot 继续负责镜像签名、
+安全计数器、A/B 启动和回滚裁决。
 
-本产品明确不支持多 MCU 清单、动态 CAN ID、节点发现或并行调度。固定
-`0x7E0/0x7E8` 是单 MCU 产品接口的一部分，而不是待扩展的临时实现。产品范围和
-非目标见 `docs/single-mcu-product-scope.md`。
+MCU 由官方 CANopenNode LSS Master 完成投产登记；升级严格串行，不支持并行写入。
+产品范围和非目标见 `docs/multi-mcu-update-scope.md`。
 
-`gateway-lss-master` 仅用于设备投产前的 CANopen LSS commissioning，不进入 OTA
-运行链路，也不改变上述固定 CAN ID 产品边界。
+`gateway-lss-master` 仅负责 commissioning 和持久化身份到 Node-ID 映射，不实现
+第二套 LSS 状态机。
 
 工作目录：`E:\T527\can_boot\gateway`
 
@@ -17,7 +17,7 @@ hawkBit/SWUpdate 接收和验证发布包，经固定 SocketCAN/ISO-TP/UDS 通�
 
 | 范围 | 状态 | 说明 |
 |---|---|---|
-| RAW CAN | PASS | 真实 `0x700` heartbeat 与 `0x7E0/0x7E8` 双向通信已验证 |
+| 多 MCU 寻址 | 待板端验证 | Node-ID 派生 UDS、日志和 heartbeat CAN ID |
 | ISO-TP | PASS | 单帧、多帧、BS/STmin 与 timeout 路径已验证 |
 | Minimal UDS | PASS | `0x10`、`0x3E`、`0x22` 基础诊断已验证 |
 | Download/OTA validation | PASS | 下载、写入边界、update-state、verify、pending、reset 与故障场景已验证 |
@@ -109,9 +109,14 @@ build-target/mcu-updater-direct
 build-target/token-signer-daemon
 ```
 
+目标系统的官方 SWUpdate 2019.11 必须通过其 Kconfig 将
+`CONFIG_SOCKET_REMOTE_HANDLER_DIRECTORY` 设为
+`/run/mcu-update/remote-handler/`；部署脚本会在写入任何文件前检查该配置。
+
 ## 部署到 T527
 
-生产系统只部署 `mcu-updater` 和 `token-signer-daemon`，由 systemd 分别管理
+生产系统部署 `mcu-updater`、`token-signer-daemon` 和 commissioning 工具，
+由 systemd 分别管理
 网络、SWUpdate、更新服务和 signer：
 
 ```powershell
@@ -122,7 +127,8 @@ build-target/token-signer-daemon
 
 ```powershell
 .\scripts\deploy_mcu_update_direct_adb.ps1 <diagnostic arguments>
-.\scripts\run_mcu_update_direct_adb.ps1 -ImagePath <image.bin>
+.\scripts\run_mcu_update_direct_adb.ps1 -ImagePath <image.bin> `
+    -TargetIdentity VVVVVVVV:PPPPPPPP:RRRRRRRR:SSSSSSSS
 ```
 
 ## Runner 命令
@@ -131,7 +137,7 @@ build-target/token-signer-daemon
 mcu-updater <device-local Remote Handler options>
 mcu-updater-direct <options>
 mcu-package-probe <image.bin>
-gateway-log-receiver <ifname>
+gateway-log-receiver <ifname> <node-id>
 gateway-lss-master fastscan <ifname> <new-node-id>
 gateway-lss-master select <ifname> <vendor-id> <product-code> <revision> <serial> <new-node-id>
 ```
@@ -140,7 +146,7 @@ gateway-lss-master select <ifname> <vendor-id> <product-code> <revision> <serial
 
 ```bash
 cd /opt/can-ota-gateway
-./gateway-log-receiver awlink0
+./gateway-log-receiver awlink0 1
 ```
 
 真实 OTA 的 COSE/CWT token 只能由独立的 OP-TEE signer 根据当前 MCU seed
@@ -151,7 +157,7 @@ cd /opt/can-ota-gateway
 
 ## 诊断与板端验收约束
 
-- MCU ULog 接收器只监听 raw-CAN `0x6D0`；它不发送 UDS 请求、不参与 OTA 状态机，
+- MCU ULog 接收器只监听指定 Node-ID 的 `0x680 + Node-ID`；它不发送 UDS 请求、不参与 OTA 状态机，
   也不由 MCU updater 启动或管理。
 - SecurityAccess 请求/响应不得写入命令历史、仓库或诊断输出。
 - heartbeat/link/CAN 异常、意外 NRC、timeout、DID/CRC/sequence 不一致时立即停止，
@@ -162,9 +168,9 @@ cd /opt/can-ota-gateway
 | 参数 | 值 |
 |---|---|
 | Classic CAN bitrate | 500000 |
-| Gateway request ID | `0x7E0` |
-| MCU response ID | `0x7E8` |
-| MCU heartbeat | `0x700`，DLC=`1`，`DATA[0]=0x05`（Alive），周期 `1000 ms` |
+| Gateway request ID | `0x600 + Node-ID` |
+| MCU response ID | `0x580 + Node-ID` |
+| MCU heartbeat | `0x700 + Node-ID`，DLC=`1`，`DATA[0]=0x05`（Alive），周期 `1000 ms` |
 | MCU offline 判定 | Gateway 接收端距最后一次有效 heartbeat 超过 `3000 ms`；不使用收发或错误计数 |
 | ISO-TP | `BS=8`，`STmin=2 ms` |
 | UDS timing | 初始默认 `P2=50 ms`、`P2*=5000 ms`；每次 `0x10` 后以 MCU 公布的参数为准（P2* wire unit=10 ms），TesterPresent=1000 ms |
@@ -183,8 +189,8 @@ cd /opt/can-ota-gateway
 - 当前没有 CI/CD、版本标签、CODEOWNERS、项目级 LICENSE、SBOM、覆盖率和静态
   分析门禁。
 - `t527_deploy` 与参考升级包直接保存在 Git 中，尚未迁移到签名制品库。
-- 尚未实现 cloud download、delta、compression、multi-MCU orchestration 或
-  production package scheduler。
+- 尚未实现 cloud download、delta、compression、并行 MCU 更新或 production
+  package scheduler。
 - README 中的状态是当前工程事实，不等同于功能安全、信息安全或量产认证。
 
 在上述缺口关闭并形成可重复、可审计、带标签的干净 Release 前，本仓库应标记为

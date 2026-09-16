@@ -1,6 +1,7 @@
 #include "direct_args.h"
 
 #include <stdlib.h>
+#include <ctype.h>
 #include <string.h>
 
 #include "token_signer_client.h"
@@ -30,6 +31,7 @@ int mcu_updater_direct_args_parse(int argc, char **argv, McuUpdaterDirectOptions
         SEEN_SIGNER_GID = 1u << 5,
         SEEN_SIGNER_SOCKET_GID = 1u << 6,
         SEEN_SIGNER_TIMEOUT = 1u << 7,
+        SEEN_TARGET = 1u << 8,
     };
     unsigned int seen = 0u;
     const char *basename;
@@ -93,6 +95,21 @@ int mcu_updater_direct_args_parse(int argc, char **argv, McuUpdaterDirectOptions
                 return -1;
             }
         }
+        else if (strcmp(argv[index], "--target-identity") == 0)
+        {
+            const char *text = argv[index + 1];
+            char hex[33];
+            if ((seen & SEEN_TARGET) != 0u || strlen(text) != 35u) return -1;
+            seen |= SEEN_TARGET;
+            for (size_t field = 0; field < 4; ++field)
+            {
+                if (field < 3 && text[field * 9 + 8] != ':') return -1;
+                for (size_t digit = 0; digit < 8; ++digit)
+                    hex[field * 8 + digit] = (char)tolower((unsigned char)text[field * 9 + digit]);
+            }
+            hex[32] = '\0';
+            if (util_parse_hex(hex, options->target_identity, MCU_IDENTITY_SIZE) != 0) return -1;
+        }
         else if (strcmp(argv[index], "--signer-timeout-ms") == 0)
         {
             char *end = NULL;
@@ -112,7 +129,8 @@ int mcu_updater_direct_args_parse(int argc, char **argv, McuUpdaterDirectOptions
             return -1;
         }
     }
-    if (index != argc || options->job_dir == NULL || options->job_id == NULL ||
+    if ((seen & SEEN_TARGET) == 0u ||
+        index != argc || options->job_dir == NULL || options->job_id == NULL ||
         options->ifname == NULL || options->signer_endpoint == NULL ||
         options->signer_uid == 0u || options->signer_gid == 0u ||
         options->signer_socket_gid == 0u ||

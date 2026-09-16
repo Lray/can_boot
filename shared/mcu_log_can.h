@@ -11,7 +11,7 @@
  * fragment framing; both trees include it and must not redefine these
  * constants locally.
  *
- * Each frame uses CAN_ID_MCU_ULOG and carries:
+ * Each frame uses CAN_ID_MCU_ULOG(active_node_id) and carries:
  *   data[0] : START (bit 7), END (bit 6), fragment index (bits 5..0)
  *   data[1..7] : up to seven UTF-8 log bytes
  *

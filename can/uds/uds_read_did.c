@@ -1,7 +1,9 @@
 #include "uds_read_did.h"
 
 #include "boot_observation.h"
+#include "factory_identity.h"
 #include "image_confirm.h"
+#include "shared/mcu_identity.h"
 #include "shared/uds_protocol.h"
 #include "sysflash.h"
 #include "uds_msg.h"
@@ -33,12 +35,25 @@ static uds_read_did_result_t UDS_ReadDid_BuildStandardResponse(
     uds_read_did_response_t *response)
 {
     mcuboot_image_version_t running_image_version = {0};
+    factory_identity_t identity;
     uint8_t active_slot = SLOT_INVALID;
 
     UDS_ReadDid_SetResponseHeader(did, response);
 
     switch (did)
     {
+        case DID_LSS_IDENTITY:
+            if (!FactoryIdentity_Read(&identity))
+            {
+                return UDS_READ_DID_RESULT_BUILD_FAILED;
+            }
+            UDS_Msg_WriteBe32(&response->data[3], identity.vendor_id);
+            UDS_Msg_WriteBe32(&response->data[7], identity.product_code);
+            UDS_Msg_WriteBe32(&response->data[11], identity.revision_number);
+            UDS_Msg_WriteBe32(&response->data[15], identity.serial_number);
+            response->length = 3U + MCU_IDENTITY_SIZE;
+            return UDS_READ_DID_RESULT_OK;
+
         case DID_BOOT_VERSION:
             UDS_ReadDid_SetTextVersion(response, (uint8_t)'B');
             return UDS_READ_DID_RESULT_OK;

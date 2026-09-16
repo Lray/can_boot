@@ -30,7 +30,8 @@ int isotp_user_send_can(const uint32_t arbitration_id,
 {
     CO_ReturnError_t result;
 
-    if ((s_can_module == NULL) || (s_tx_buffer == NULL) ||
+    if ((s_can_module == NULL) || !s_can_module->CANnormal ||
+        (s_tx_buffer == NULL) ||
         (data == NULL) || (size == 0U) ||
         (size > sizeof(s_tx_buffer->data)) ||
         (arbitration_id != (s_tx_buffer->ident & 0x07FFU)))

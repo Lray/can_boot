@@ -1,56 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-readonly repo_root="$(cd -- "${script_dir}/../.." && pwd)"
-
 usage()
 {
     cat <<'EOF'
 usage:
-  build_mcu_hawkbit_swu_wsl.sh --payload /abs/Can.bin --target-slot 0|1 \
-      --version MAJOR.MINOR[.REVISION][+BUILD] --security-counter N \
-      --mcuboot-key /secure/root-ec-p256.pem --imgtool /path/to/imgtool \
-      --swu-key /secure/swu-release-private.pem --swu-public-key /safe/swu-release-public.pem \
+  build_mcu_hawkbit_swu_wsl.sh --image /abs/image.bin \
+      --target-identity VVVVVVVV:PPPPPPPP:RRRRRRRR:SSSSSSSS \
+      --version VERSION --swu-key /mnt/e/T527/can_boot/key/private.pem \
+      --swu-public-key /mnt/e/T527/can_boot/key/public.pem \
       --out-dir /abs/new-release-dir [--swupdate /path/to/swupdate]
 
-This is the only release builder: it delegates MCU image signing to the
-repository's canonical MCUboot imgtool wrapper, then follows the official
-SWUpdate RSA-PSS + cpio-crc packaging procedure and validates the resulting
-SWU with the official swupdate -c checker.
+The input is an already signed MCUboot image produced only by
+E:\T527\can_boot\tools\image.py. swugenerator 0.6 creates the signed SWU.
 EOF
 }
 
-fail()
-{
-    printf '%s\n' "build-mcu-hawkbit-swu: $*" >&2
-    exit 1
-}
+fail() { printf '%s\n' "build-mcu-hawkbit-swu: $*" >&2; exit 1; }
+require_file() { [[ -f "$2" && ! -L "$2" ]] || fail "$1 is not a regular file: $2"; }
 
-require_regular_file()
-{
-    local label="$1" file="$2"
-
-    [[ -f "${file}" && ! -L "${file}" ]] || fail "${label} is not a regular file: ${file}"
-}
-
-require_private_key()
-{
-    local label="$1" file="$2" owner mode
-
-    require_regular_file "${label}" "${file}"
-    owner="$(stat -c '%u' -- "${file}")"
-    mode="$(stat -c '%a' -- "${file}")"
-    [[ "${owner}" == "$(id -u)" && $((8#${mode} & 0077)) -eq 0 ]] ||
-        fail "${label} must be owned by the invoking user and not group/world readable"
-}
-
-payload=''
-target_slot=''
+image=''
+target_identity=''
 version=''
-security_counter=''
-mcuboot_key=''
-imgtool=''
 swu_key=''
 swu_public_key=''
 out_dir=''
@@ -58,12 +29,9 @@ swupdate_bin='swupdate'
 
 while (($#)); do
     case "$1" in
-        --payload) payload="${2:?missing --payload value}"; shift 2 ;;
-        --target-slot) target_slot="${2:?missing --target-slot value}"; shift 2 ;;
+        --image) image="${2:?missing --image value}"; shift 2 ;;
+        --target-identity) target_identity="${2:?missing --target-identity value}"; shift 2 ;;
         --version) version="${2:?missing --version value}"; shift 2 ;;
-        --security-counter) security_counter="${2:?missing --security-counter value}"; shift 2 ;;
-        --mcuboot-key) mcuboot_key="${2:?missing --mcuboot-key value}"; shift 2 ;;
-        --imgtool) imgtool="${2:?missing --imgtool value}"; shift 2 ;;
         --swu-key) swu_key="${2:?missing --swu-key value}"; shift 2 ;;
         --swu-public-key) swu_public_key="${2:?missing --swu-public-key value}"; shift 2 ;;
         --out-dir) out_dir="${2:?missing --out-dir value}"; shift 2 ;;
@@ -73,80 +41,48 @@ while (($#)); do
     esac
 done
 
-[[ -n "${payload}" && -n "${target_slot}" && -n "${version}" && -n "${security_counter}" &&
-   -n "${mcuboot_key}" && -n "${imgtool}" && -n "${swu_key}" &&
-   -n "${swu_public_key}" && -n "${out_dir}" ]] || { usage >&2; fail 'missing required argument'; }
-[[ "${target_slot}" =~ ^[01]$ ]] || fail 'target slot must be 0 or 1'
-[[ "${security_counter}" =~ ^[0-9]+$ ]] || fail 'security counter must be an unsigned decimal value'
-[[ "${version}" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?(\+[0-9]+)?$ ]] || fail 'invalid MCUboot version'
-[[ "${out_dir}" == /* ]] || fail 'out-dir must be absolute'
-[[ ! -e "${out_dir}" ]] || fail "refusing to overwrite existing output: ${out_dir}"
-
-require_regular_file payload "${payload}"
-require_private_key MCUboot-signing-key "${mcuboot_key}"
-require_private_key SWU-signing-key "${swu_key}"
-require_regular_file SWU-public-key "${swu_public_key}"
+[[ -n "$image" && -n "$target_identity" && -n "$version" && -n "$swu_key" &&
+   -n "$swu_public_key" && -n "$out_dir" ]] || { usage >&2; fail 'missing required argument'; }
+[[ "$target_identity" =~ ^[0-9A-F]{8}:[0-9A-F]{8}:[0-9A-F]{8}:[0-9A-F]{8}$ ]] ||
+    fail 'target identity must be four uppercase eight-digit hexadecimal fields'
+[[ "$version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?(\+[0-9]+)?$ ]] || fail 'invalid version'
+[[ "$out_dir" == /* && ! -e "$out_dir" ]] || fail 'out-dir must be an unused absolute path'
+case "$swu_key" in /mnt/e/T527/can_boot/key/*) ;; *) fail 'SWU key must come from /mnt/e/T527/can_boot/key' ;; esac
+case "$swu_public_key" in /mnt/e/T527/can_boot/key/*) ;; *) fail 'SWU public key must come from /mnt/e/T527/can_boot/key' ;; esac
+case "$swu_key" in *','*) fail 'SWU key path contains an unsupported comma' ;; esac
+require_file image "$image"
+require_file SWU-signing-key "$swu_key"
+require_file SWU-public-key "$swu_public_key"
+[[ "$(stat -c '%u' -- "$swu_key")" == "$(id -u)" &&
+   $((8#$(stat -c '%a' -- "$swu_key") & 0077)) -eq 0 ]] ||
+    fail 'SWU signing key must be private to the invoking user'
+command -v swugenerator >/dev/null 2>&1 || fail 'swugenerator 0.6 is required'
+command -v "$swupdate_bin" >/dev/null 2>&1 || fail 'official swupdate checker is required'
 command -v openssl >/dev/null 2>&1 || fail 'openssl is required'
-command -v cpio >/dev/null 2>&1 || fail 'cpio is required'
-command -v "${swupdate_bin}" >/dev/null 2>&1 || fail 'swupdate checker is required'
-if [[ "${imgtool}" == */* ]]; then
-    [[ -x "${imgtool}" || -f "${imgtool}" ]] || fail "imgtool is unavailable: ${imgtool}"
-else
-    command -v "${imgtool}" >/dev/null 2>&1 || fail "imgtool is unavailable: ${imgtool}"
-fi
 
+endpoint_identity="${target_identity//:/-}"
 umask 077
-mkdir -p -- "${out_dir}/mcuboot" "${out_dir}/stage"
-
-python3 "${repo_root}/can/scripts/make_mcu_mcuboot_bundle.py" \
-    --payload "${payload}" --target-slot "${target_slot}" --version "${version}" \
-    --security-counter "${security_counter}" --key "${mcuboot_key}" --imgtool "${imgtool}" \
-    --out-dir "${out_dir}/mcuboot"
-
-readonly image_path="${out_dir}/mcuboot/image.bin"
-readonly image_size="$(stat -c '%s' -- "${image_path}")"
-readonly image_sha256="$(sha256sum -- "${image_path}" | awk '{print $1}')"
-readonly stage_dir="${out_dir}/stage"
-readonly swu_path="${out_dir}/t527-mcu-slot${target_slot}-v${version}.swu"
-readonly swu_temp="${swu_path}.partial"
+mkdir -p -- "$out_dir/stage"
+install -m 0400 -- "$image" "$out_dir/stage/image.bin"
+swu_path="$out_dir/mcu-${endpoint_identity}-v${version}.swu"
 
 printf '%s\n' \
     'software = {' \
-    "    version = \"${version}\";" \
-    "    description = \"T527 MCU slot${target_slot} OTA image ${version}\";" \
+    "    version = \"$version\";" \
     '    images: (' \
     '        {' \
     '            filename = "image.bin";' \
     '            type = "remote";' \
-    '            data = "mcu-v1";' \
-    "            sha256 = \"${image_sha256}\";" \
+    "            data = \"mcu-v1-${endpoint_identity}\";" \
     '        }' \
     '    );' \
-    '}' > "${stage_dir}/sw-description"
+    '}' > "$out_dir/sw-description"
 
-openssl dgst -sha256 -sign "${swu_key}" -sigopt rsa_padding_mode:pss \
-    -sigopt rsa_pss_saltlen:-2 -out "${stage_dir}/sw-description.sig" \
-    "${stage_dir}/sw-description"
-openssl dgst -sha256 -verify "${swu_public_key}" -signature "${stage_dir}/sw-description.sig" \
-    -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:-2 "${stage_dir}/sw-description" >/dev/null
-install -m 0400 -- "${image_path}" "${stage_dir}/image.bin"
+sign_command='exec openssl dgst -sha256 -sign "$1" -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:-2 -out "$3" "$2"'
+swugenerator -s "$out_dir/sw-description" -a "$out_dir/stage" -o "$swu_path" \
+    -k "CUSTOM,bash,-c,$sign_command,--,$swu_key" create
+"$swupdate_bin" -c -i "$swu_path" -k "$swu_public_key"
+chmod 0644 -- "$swu_path"
 
-(
-    cd -- "${stage_dir}"
-    printf '%s\n' sw-description sw-description.sig image.bin | cpio -o -H crc > "${swu_temp}"
-)
-"${swupdate_bin}" -c -i "${swu_temp}" -k "${swu_public_key}"
-mv -- "${swu_temp}" "${swu_path}"
-chmod 0644 -- "${swu_path}"
-
-printf '%s\n' \
-    "MCU_UPDATE_IMAGE_SIZE=${image_size}" \
-    "MCU_UPDATE_IMAGE_SHA256=${image_sha256}" \
-    "MCU_UPDATE_SWU=$(basename -- "${swu_path}")" \
-    "MCU_UPDATE_SWU_SHA256=$(sha256sum -- "${swu_path}" | awk '{print $1}')" \
-    "MCU_UPDATE_VERSION=${version}" > "${out_dir}/release-manifest.env"
-chmod 0600 -- "${out_dir}/release-manifest.env"
-
-printf 'image=%s\nimage_size=%s\nimage_sha256=%s\nswu=%s\nswu_sha256=%s\n' \
-    "${image_path}" "${image_size}" "${image_sha256}" "${swu_path}" \
-    "$(sha256sum -- "${swu_path}" | awk '{print $1}')"
+printf 'image=%s\ntarget_identity=%s\nswu=%s\nswu_sha256=%s\n' \
+    "$image" "$target_identity" "$swu_path" "$(sha256sum -- "$swu_path" | awk '{print $1}')"
