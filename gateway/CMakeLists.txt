@@ -40,28 +40,18 @@ target_include_directories(gateway-canopen-linux PUBLIC
 )
 target_compile_definitions(gateway-canopen-linux PUBLIC _GNU_SOURCE CO_SINGLE_THREAD)
 
-add_library(gateway-storage-linux STATIC
-    third_party/CANopenLinux/CO_storageLinux.c
-    ../third_party/CANopenNode/301/crc16-ccitt.c
-)
-target_include_directories(gateway-storage-linux PUBLIC
-    ${GATEWAY_CANOPEN_LINUX_DIR}
-    ${GATEWAY_CANOPENNODE_DIR}
-)
-target_compile_definitions(gateway-storage-linux PUBLIC _GNU_SOURCE CO_SINGLE_THREAD)
-
 add_executable(gateway-lss-master
     apps/lss_master/lss_master_main.c
 )
-add_library(gateway-lss-assignment STATIC
-    apps/lss_master/lss_assignment.c
+add_library(gateway-lss-runtime STATIC
+    apps/lss_master/lss_runtime.c
 )
-target_include_directories(gateway-lss-assignment PUBLIC
+target_include_directories(gateway-lss-runtime PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/lss_master
     ${GATEWAY_INCLUDE_DIRS}
 )
-target_link_libraries(gateway-lss-assignment PUBLIC gateway-storage-linux)
-target_link_libraries(gateway-lss-master PRIVATE gateway-canopen-linux gateway-lss-assignment)
+target_link_libraries(gateway-lss-runtime PUBLIC gateway-canopen-linux)
+target_link_libraries(gateway-lss-master PRIVATE gateway-lss-runtime)
 
 add_library(gateway-byte-order STATIC
     src/codec/byte_order.c
@@ -196,7 +186,7 @@ target_include_directories(gateway-mcu-update-app PUBLIC
 target_compile_definitions(gateway-mcu-update-app PRIVATE _GNU_SOURCE)
 target_link_libraries(gateway-mcu-update-app
     PUBLIC gateway-mcu-update-engine
-    PRIVATE gateway-lss-assignment
+    PRIVATE gateway-lss-runtime
     PRIVATE rt
 )
 
