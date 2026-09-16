@@ -49,6 +49,11 @@ target_include_directories(gateway-storage-linux PUBLIC
 )
 target_compile_definitions(gateway-storage-linux PUBLIC _GNU_SOURCE CO_SINGLE_THREAD)
 
+add_executable(gateway-lss-master
+    apps/lss_master/lss_master_main.c
+)
+target_link_libraries(gateway-lss-master PRIVATE gateway-canopen-linux)
+
 add_library(gateway-byte-order STATIC
     src/codec/byte_order.c
 )

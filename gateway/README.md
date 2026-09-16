@@ -8,6 +8,9 @@ hawkBit/SWUpdate 接收和验证发布包，经固定 SocketCAN/ISO-TP/UDS 通�
 `0x7E0/0x7E8` 是单 MCU 产品接口的一部分，而不是待扩展的临时实现。产品范围和
 非目标见 `docs/single-mcu-product-scope.md`。
 
+`gateway-lss-master` 仅用于设备投产前的 CANopen LSS commissioning，不进入 OTA
+运行链路，也不改变上述固定 CAN ID 产品边界。
+
 工作目录：`E:\T527\can_boot\gateway`
 
 ## 当前状态
@@ -31,6 +34,8 @@ hawkBit/SWUpdate 接收和验证发布包，经固定 SocketCAN/ISO-TP/UDS 通�
 - `src/package/`：升级包结构、CRC/SHA、MCUboot 格式边界与策略校验；不作最终签名/启动裁决。
 - `src/ota/`：单 MCU 更新入口、`0x34/0x36/0x37` 下载、断点续传、reset 与确认。
 - `src/log/`：MCU ULog raw-CAN 重组；仅供独立诊断工具使用，独立于 OTA 会话。
+- `apps/lss_master/`：直接使用官方 CANopenNode LSS Master 的独立 commissioning 工具。
+- `third_party/CANopenLinux/`：最小 SocketCAN driver 与 standalone filesystem persistence。
 - `tools/smoke/`：板端 smoke runner；不得在这里复制协议实现。
 
 完整边界定义见 `docs/module-boundaries.md`。
@@ -93,7 +98,7 @@ cmake -S . -B build-target \
   -DTEE_INCLUDE_DIR="${TEE_DEVKIT}/include" \
   -DTEE_LIBRARY="${TEE_DEVKIT}/exportlib/libteec.so.1"
 cmake --build build-target -j --target \
-  mcu-updater mcu-updater-direct token-signer-daemon
+  mcu-updater mcu-updater-direct token-signer-daemon gateway-lss-master
 ```
 
 生产构建必须使用 AArch64 compiler、目标 sysroot 和目标 ZeroMQ，并生成：
@@ -127,6 +132,8 @@ mcu-updater <device-local Remote Handler options>
 mcu-updater-direct <options>
 mcu-package-probe <image.bin>
 gateway-log-receiver <ifname>
+gateway-lss-master fastscan <ifname> <new-node-id>
+gateway-lss-master select <ifname> <vendor-id> <product-code> <revision> <serial> <new-node-id>
 ```
 
 只读诊断示例：
