@@ -265,26 +265,104 @@ static bool_t StoreLssConfiguration(void *object,
     return true;
 }
 
-static bool ResetLssCommunication(void)
+static bool ResetCommunication(void)
 {
-    if (CO_LSSslave_init(&s_lss_slave,
-                         &s_lss_address,
-                         &s_lss_pending_bit_rate,
-                         &s_lss_pending_node_id,
-                         &s_can_module,
-                         CAN_RX_LSS_INDEX,
-                         CO_CAN_ID_LSS_MST,
-                         &s_can_module,
-                         CAN_TX_LSS_INDEX,
-                         CO_CAN_ID_LSS_SLV) != CO_ERROR_NO)
-    {
-        return false;
-    }
+    CO_CANtx_t *isotp_tx_buffer;
+    CO_CANtx_t *ulog_tx_buffer = NULL;
+    bool success;
+    uint32_t primask = __get_PRIMASK();
 
-    CO_LSSslave_initCfgStoreCall(&s_lss_slave,
-                                 NULL,
-                                 StoreLssConfiguration);
-    return true;
+    __disable_irq();
+    s_can_module.CANnormal = false;
+    CO_CANmodule_disable(&s_can_module);
+    s_heartbeat_tx_buffer = NULL;
+    isotp_stm32_init(NULL, NULL);
+    s_can_rx_head = 0U;
+    s_can_rx_tail = 0U;
+    success = CO_CANmodule_init(&s_can_module,
+                                 &s_can_stm32,
+                                 s_can_rx_buffers,
+                                 CAN_RX_BUFFER_COUNT,
+                                 s_can_tx_buffers,
+                                 CAN_TX_BUFFER_COUNT,
+                                 CAN_BIT_RATE_KBIT) == CO_ERROR_NO;
+    if (success)
+    {
+        success = CO_LSSslave_init(&s_lss_slave,
+                                   &s_lss_address,
+                                   &s_lss_pending_bit_rate,
+                                   &s_lss_pending_node_id,
+                                   &s_can_module,
+                                   CAN_RX_LSS_INDEX,
+                                   CO_CAN_ID_LSS_MST,
+                                   &s_can_module,
+                                   CAN_TX_LSS_INDEX,
+                                   CO_CAN_ID_LSS_SLV) == CO_ERROR_NO;
+    }
+    if (success)
+    {
+        CO_LSSslave_initCfgStoreCall(&s_lss_slave,
+                                     NULL,
+                                     StoreLssConfiguration);
+        UDS_Init(&s_uds_transport);
+        if (s_lss_slave.activeNodeID != CO_LSS_NODE_ID_ASSIGNMENT)
+        {
+            uint8_t node_id = s_lss_slave.activeNodeID;
+
+            success = CO_CANrxBufferInit(&s_can_module,
+                                         CAN_RX_UDS_INDEX,
+                                         CAN_ID_UDS_REQUEST(node_id),
+                                         0x07FFU,
+                                         false,
+                                         NULL,
+                                         ReceiveUdsCanFrame) == CO_ERROR_NO;
+            if (success)
+            {
+                isotp_tx_buffer = CO_CANtxBufferInit(&s_can_module,
+                                                     CAN_TX_UDS_INDEX,
+                                                     CAN_ID_UDS_RESPONSE(node_id),
+                                                     false,
+                                                     8U,
+                                                     false);
+                ulog_tx_buffer = CO_CANtxBufferInit(&s_can_module,
+                                                    CAN_TX_ULOG_INDEX,
+                                                    CAN_ID_MCU_ULOG(node_id),
+                                                    false,
+                                                    8U,
+                                                    false);
+                s_heartbeat_tx_buffer = CO_CANtxBufferInit(
+                    &s_can_module,
+                    CAN_TX_HEARTBEAT_INDEX,
+                    CAN_ID_HEARTBEAT(node_id),
+                    false,
+                    1U,
+                    false);
+                success = (isotp_tx_buffer != NULL) &&
+                          (ulog_tx_buffer != NULL) &&
+                          (s_heartbeat_tx_buffer != NULL);
+            }
+            if (success)
+            {
+                isotp_init_link(&s_uds_isotp,
+                                CAN_ID_UDS_RESPONSE(node_id),
+                                s_isotp_send_buffer,
+                                sizeof(s_isotp_send_buffer),
+                                s_isotp_receive_buffer,
+                                sizeof(s_isotp_receive_buffer));
+                isotp_set_rx_done_cb(&s_uds_isotp, DispatchUdsMessage, NULL);
+                isotp_stm32_init(&s_can_module, isotp_tx_buffer);
+            }
+        }
+    }
+    if (success)
+    {
+        CO_CANsetNormalMode(&s_can_module);
+        success = s_can_module.CANnormal &&
+                  ((ulog_tx_buffer == NULL) ||
+                   ULogCan_Init(&s_can_module, ulog_tx_buffer));
+    }
+    __set_PRIMASK(primask);
+    return success;
 }
 
 static void RequestReset(void)
@@ -444,87 +522,12 @@ int main(void)
      * keep feeding from a dedicated worker thread. */
     Watchdog_Feed();
     HAL_GPIO_WritePin(GPIOE, GPIO_PIN_0, GPIO_PIN_SET);
-    isotp_init_link(&s_uds_isotp,
-                    CAN_ID_UDS_RESPONSE(s_lss_pending_node_id),
-                    s_isotp_send_buffer,
-                    sizeof(s_isotp_send_buffer),
-                    s_isotp_receive_buffer,
-                    sizeof(s_isotp_receive_buffer));
-    isotp_set_rx_done_cb(&s_uds_isotp, DispatchUdsMessage, NULL);
-
+    s_can_stm32.CANHandle = FDCAN_Port_GetHandle();
+    s_can_stm32.HWInitFunction = MX_FDCAN1_Init;
+    if (!ResetCommunication())
     {
-        CO_ReturnError_t can_result;
-        bool can_started;
-
-        s_can_stm32.CANHandle = FDCAN_Port_GetHandle();
-        s_can_stm32.HWInitFunction = MX_FDCAN1_Init;
-        can_result = CO_CANmodule_init(&s_can_module,
-                                     &s_can_stm32,
-                                     s_can_rx_buffers,
-                                     CAN_RX_BUFFER_COUNT,
-                                     s_can_tx_buffers,
-                                     CAN_TX_BUFFER_COUNT,
-                                     CAN_BIT_RATE_KBIT);
-        if (can_result == CO_ERROR_NO)
-        {
-            can_result = CO_CANrxBufferInit(&s_can_module,
-                                            CAN_RX_UDS_INDEX,
-                                            CAN_ID_UDS_REQUEST(s_lss_pending_node_id),
-                                            0x07FFU,
-                                            false,
-                                            NULL,
-                                            ReceiveUdsCanFrame);
-        }
-
-        if (can_result == CO_ERROR_NO)
-        {
-            CO_CANtx_t *isotp_tx_buffer = CO_CANtxBufferInit(
-                &s_can_module,
-                CAN_TX_UDS_INDEX,
-                CAN_ID_UDS_RESPONSE(s_lss_pending_node_id),
-                false,
-                8U,
-                false);
-            CO_CANtx_t *ulog_tx_buffer = CO_CANtxBufferInit(
-                &s_can_module,
-                CAN_TX_ULOG_INDEX,
-                CAN_ID_MCU_ULOG(s_lss_pending_node_id),
-                false,
-                8U,
-                false);
-
-            s_heartbeat_tx_buffer = CO_CANtxBufferInit(
-                &s_can_module,
-                CAN_TX_HEARTBEAT_INDEX,
-                CAN_ID_HEARTBEAT(s_lss_pending_node_id),
-                false,
-                1U,
-                false);
-            can_started = (isotp_tx_buffer != NULL) &&
-                          (ulog_tx_buffer != NULL) &&
-                          (s_heartbeat_tx_buffer != NULL) &&
-                          ResetLssCommunication();
-            if (can_started)
-            {
-                isotp_stm32_init(&s_can_module, isotp_tx_buffer);
-                CO_CANsetNormalMode(&s_can_module);
-                can_started = s_can_module.CANnormal;
-            }
-            if (can_started)
-            {
-                can_started = ULogCan_Init(&s_can_module, ulog_tx_buffer);
-            }
-        }
-        else
-        {
-            can_started = false;
-        }
-
-        startup_health_ok = startup_health_ok && can_started;
-        if (!can_started)
-        {
-            Error_Handler();
-        }
+        startup_health_ok = false;
+        Error_Handler();
     }
     SendHeartbeat();
 
@@ -534,7 +537,6 @@ int main(void)
         printf("reset flags=0x%08lX\r\n", (unsigned long)reset_reason);
     }
 
-    UDS_Init(&s_uds_transport);
     {
         image_confirm_result_t confirm_result =
             ImageConfirm_RunStartupSelfCheck(startup_health_ok);
@@ -634,31 +636,9 @@ int main(void)
 
     while (1)
     {
-        if (CO_LSSslave_process(&s_lss_slave))
+        if (CO_LSSslave_process(&s_lss_slave) && !ResetCommunication())
         {
-            uint8_t node_id;
-
-            s_can_module.CANnormal = false;
-            CO_CANmodule_disable(&s_can_module);
-            if (!ResetLssCommunication())
-            {
-                Error_Handler();
-            }
-            node_id = s_lss_slave.activeNodeID;
-            s_can_rx_buffers[CAN_RX_UDS_INDEX].ident =
-                CAN_ID_UDS_REQUEST(node_id);
-            s_can_tx_buffers[CAN_TX_UDS_INDEX].ident =
-                CAN_ID_UDS_RESPONSE(node_id);
-            s_can_tx_buffers[CAN_TX_ULOG_INDEX].ident =
-                CAN_ID_MCU_ULOG(node_id);
-            s_can_tx_buffers[CAN_TX_HEARTBEAT_INDEX].ident =
-                CAN_ID_HEARTBEAT(node_id);
-            s_uds_isotp.send_arbitration_id = CAN_ID_UDS_RESPONSE(node_id);
-            CO_CANsetNormalMode(&s_can_module);
-            if (!s_can_module.CANnormal)
-            {
-                Error_Handler();
-            }
+            Error_Handler();
         }
 
         /* The FDCAN controller recovers from bus-off automatically; this

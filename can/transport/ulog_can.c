@@ -64,13 +64,12 @@ bool ULogCan_Init(CO_CANmodule_t *CANmodule, CO_CANtx_t *tx_buffer)
         return false;
     }
 
+    s_can_module = CANmodule;
+    s_tx_buffer = tx_buffer;
     if (s_ulog_can_registered)
     {
         return true;
     }
-
-    s_can_module = CANmodule;
-    s_tx_buffer = tx_buffer;
 
     rt_rbb_init(&s_record_queue,
                 (rt_uint8_t *)s_record_storage,
