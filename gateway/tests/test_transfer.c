@@ -9,7 +9,7 @@
 #include "uds_client.h"
 
 #define TEST_IMAGE_SIZE (2u * 8192u)
-#define MAX_EXPECTED_TRANSACTIONS 140u
+#define MAX_EXPECTED_TRANSACTIONS 262u
 
 typedef struct
 {
@@ -17,6 +17,8 @@ typedef struct
     size_t expected_send_len[MAX_EXPECTED_TRANSACTIONS];
     uint8_t responses[MAX_EXPECTED_TRANSACTIONS][64];
     size_t response_len[MAX_EXPECTED_TRANSACTIONS];
+    bool recv_timeout[MAX_EXPECTED_TRANSACTIONS];
+    bool send_failure[MAX_EXPECTED_TRANSACTIONS];
     int send_count;
     int recv_count;
 } FakeTransport;
@@ -31,7 +33,7 @@ static int fake_send(void *ctx, const uint8_t *data, size_t len)
     assert(len == fake->expected_send_len[index]);
     assert(memcmp(data, fake->expected_send[index], len) == 0);
     fake->send_count++;
-    return 0;
+    return fake->send_failure[index] ? -1 : 0;
 }
 
 static int fake_recv(void *ctx,
@@ -46,10 +48,14 @@ static int fake_recv(void *ctx,
     (void)timeout_ms;
     assert(index >= 0);
     assert(index < (int)MAX_EXPECTED_TRANSACTIONS);
+    fake->recv_count++;
+    if (fake->recv_timeout[index])
+    {
+        return -1;
+    }
     assert(fake->response_len[index] <= data_cap);
     memcpy(data, fake->responses[index], fake->response_len[index]);
     *data_len = fake->response_len[index];
-    fake->recv_count++;
     return 0;
 }
 
@@ -394,6 +400,114 @@ static void test_execute_rejects_no_payload_capacity(void)
     assert(fake.send_count == 3);
 }
 
+static void test_execute_retries_same_block_after_timeout(void)
+{
+    FakeTransport fake = {0};
+    UdsClient client = make_client(&fake);
+    uint8_t image[128] = {0};
+
+    fill_image(image, sizeof(image));
+    expect_erase_memory_start(&fake, 0);
+    expect_erase_memory_results(&fake, 1);
+    expect_request_download(&fake, 2, sizeof(image), 66u);
+    expect_transfer(&fake, 3, 0x01u, image, 64u);
+    fake.recv_timeout[3] = true;
+    expect_transfer(&fake, 4, 0x01u, image, 64u);
+    expect_transfer(&fake, 5, 0x02u, image + 64u, 64u);
+    expect_transfer_exit(&fake, 6);
+
+    assert(transfer_execute(&client, sizeof(image), image) == 0);
+    assert(fake.send_count == 7);
+    assert(fake.recv_count == 7);
+}
+
+static void test_execute_stops_after_two_transfer_timeouts(void)
+{
+    FakeTransport fake = {0};
+    UdsClient client = make_client(&fake);
+    uint8_t image[128] = {0};
+
+    fill_image(image, sizeof(image));
+    expect_erase_memory_start(&fake, 0);
+    expect_erase_memory_results(&fake, 1);
+    expect_request_download(&fake, 2, sizeof(image), 66u);
+    expect_transfer(&fake, 3, 0x01u, image, 64u);
+    fake.recv_timeout[3] = true;
+    expect_transfer(&fake, 4, 0x01u, image, 64u);
+    fake.recv_timeout[4] = true;
+
+    assert(transfer_execute(&client, sizeof(image), image) == UDS_ERR_TIMEOUT);
+    assert(fake.send_count == 5);
+    assert(fake.recv_count == 5);
+}
+
+static void test_execute_does_not_retry_wrong_bsc_nrc(void)
+{
+    FakeTransport fake = {0};
+    UdsClient client = make_client(&fake);
+    uint8_t image[128] = {0};
+
+    fill_image(image, sizeof(image));
+    expect_erase_memory_start(&fake, 0);
+    expect_erase_memory_results(&fake, 1);
+    expect_request_download(&fake, 2, sizeof(image), 66u);
+    expect_transfer(&fake, 3, 0x01u, image, 64u);
+    fake.responses[3][0] = NEGATIVE_RESPONSE_SID;
+    fake.responses[3][1] = SID_TRANSFER_DATA;
+    fake.responses[3][2] = NRC_WRONG_BLOCK_SEQUENCE_COUNTER;
+    fake.response_len[3] = UDS_NEGATIVE_RESPONSE_LENGTH;
+
+    assert(transfer_execute(&client, sizeof(image), image) ==
+           UDS_ERR_NEGATIVE_RESPONSE);
+    assert(client.last_nrc == NRC_WRONG_BLOCK_SEQUENCE_COUNTER);
+    assert(fake.send_count == 4);
+    assert(fake.recv_count == 4);
+}
+
+static void test_transfer_does_not_retry_send_failure(void)
+{
+    FakeTransport fake = {0};
+    UdsClient client = make_client(&fake);
+    uint8_t block[1] = {0x5au};
+
+    expect_transfer(&fake, 0, 0x01u, block, sizeof(block));
+    fake.send_failure[0] = true;
+
+    assert(uds_transfer_data(&client, 0x01u, block, sizeof(block)) ==
+           UDS_ERR_TRANSPORT);
+    assert(fake.send_count == 1);
+    assert(fake.recv_count == 0);
+}
+
+static void test_execute_retries_rollover_block(void)
+{
+    FakeTransport fake = {0};
+    UdsClient client = make_client(&fake);
+    uint8_t image[256] = {0};
+    int next_index = 3;
+
+    fill_image(image, sizeof(image));
+    expect_erase_memory_start(&fake, 0);
+    expect_erase_memory_results(&fake, 1);
+    expect_request_download(&fake, 2, sizeof(image), 3u);
+    for (unsigned int block = 0u; block < sizeof(image); block++)
+    {
+        uint8_t sequence = (uint8_t)(block + 1u);
+
+        expect_transfer(&fake, next_index++, sequence, image + block, 1u);
+        if (sequence == 0xFFu)
+        {
+            fake.recv_timeout[next_index - 1] = true;
+            expect_transfer(&fake, next_index++, sequence, image + block, 1u);
+        }
+    }
+    expect_transfer_exit(&fake, next_index);
+
+    assert(transfer_execute(&client, sizeof(image), image) == 0);
+    assert(fake.send_count == next_index + 1);
+    assert(fake.recv_count == next_index + 1);
+}
+
 int main(void)
 {
     test_uds_download_primitives();
@@ -406,5 +520,10 @@ int main(void)
     test_execute_uses_ecu_block_length();
     test_execute_caps_large_ecu_block_length();
     test_execute_rejects_no_payload_capacity();
+    test_execute_retries_same_block_after_timeout();
+    test_execute_stops_after_two_transfer_timeouts();
+    test_execute_does_not_retry_wrong_bsc_nrc();
+    test_transfer_does_not_retry_send_failure();
+    test_execute_retries_rollover_block();
     return 0;
 }

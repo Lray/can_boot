@@ -8,6 +8,7 @@
 #include "util.h"
 
 #define UDS_MAX_RESPONSE 512u
+#define UDS_TRANSFER_MAX_RETRIES 1u
 
 void uds_client_init(UdsClient *client, const TransportOps *transport,
                              void *transport_ctx)
@@ -408,8 +409,15 @@ int uds_transfer_data(UdsClient *client, uint8_t block_sequence, const uint8_t *
         memcpy(request + 2u, data, data_len);
     }
 
-    rc = uds_transaction_request(client, request, (size_t)data_len + 2u, response,
-                                 sizeof(response), &response_len);
+    for (unsigned int retry = 0u; retry <= UDS_TRANSFER_MAX_RETRIES; retry++)
+    {
+        rc = uds_transaction_request(client, request, (size_t)data_len + 2u,
+                                     response, sizeof(response), &response_len);
+        if (rc != UDS_ERR_TIMEOUT)
+        {
+            break;
+        }
+    }
     if (rc != 0)
     {
         return rc;
