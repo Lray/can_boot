@@ -393,7 +393,7 @@ static void UDS_HandleSecurityAccess(const uint8_t *request, uint16_t length)
         SID_SECURITY_ACCESS, rsp, sizeof(rsp), s_suppress_positive_response);
     return;
   }
-
+//网关向MCU发送key
   if (level == SECURITY_ACCESS_LEVEL_PROGRAMMING_KEY)
   {
     uint8_t rsp[] = {SECURITY_ACCESS_LEVEL_PROGRAMMING_KEY};

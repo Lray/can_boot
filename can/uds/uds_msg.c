@@ -30,11 +30,11 @@ uint16_t UDS_Msg_BuildPositiveResponseChecked(uint8_t *out,
 }
 
 void UDS_Msg_BuildNegativeResponse(uint8_t *out,
-                                       uint8_t original_sid,
+                                       uint8_t sid,
                                        uint8_t nrc)
 {
     out[0] = 0x7FU;
-    out[1] = original_sid;
+    out[1] = sid;
     out[2] = nrc;
 }
 
