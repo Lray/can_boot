@@ -38,11 +38,6 @@ typedef struct
 /** Reopen the transport and reinitialize the client after an MCU reset. */
 typedef int (*UdsReconnectFn_t)(void *ctx, UdsClient *client);
 
-typedef struct
-{
-    uint16_t max_block_len;
-} UdsDownloadResponse;
-
 /**
  * Initialize a client and attach its transport dependency.
  *
@@ -98,12 +93,12 @@ int uds_read_did(UdsClient *client, uint16_t did, uint8_t *data_out, size_t data
  *
  * @param client Ready UDS client.
  * @param image_size Complete image size in bytes.
- * @param response_out Receives the maximum TransferData block length.
+ * @param max_block_len_out Receives maxNumberOfBlockLength, including SID and BSC.
  * @return 0 on success or a UDS_ERR_* value on failure.
  */
 int uds_request_download(UdsClient *client,
                          uint32_t image_size,
-                         UdsDownloadResponse *response_out);
+                         uint16_t *max_block_len_out);
 /**
  * Transfer one download block using the supplied sequence counter.
  *

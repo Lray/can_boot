@@ -6,7 +6,6 @@
 #include "sysflash.h"
 
 #include <stddef.h>
-#include <stdbool.h>
 #include <string.h>
 
 typedef enum
@@ -24,8 +23,7 @@ typedef struct
     download_state_t state;
     uint8_t target_slot;
     uint8_t next_block_sequence_counter;
-    uint16_t last_block_length;
-    bool has_previous_block;
+    uint16_t previous_block_length;
     uint32_t received;
     uint32_t image_size;
 } download_session_t;
@@ -192,7 +190,7 @@ download_result_t Download_Transfer(uint8_t block_sequence_counter,
         return DOWNLOAD_RESULT_INCORRECT_LENGTH;
     }
     if (block_sequence_counter != s_download.next_block_sequence_counter &&
-        (!s_download.has_previous_block ||
+        (s_download.previous_block_length == 0U ||
          block_sequence_counter !=
              (uint8_t)(s_download.next_block_sequence_counter - 1U)))
     {
@@ -207,7 +205,7 @@ download_result_t Download_Transfer(uint8_t block_sequence_counter,
             return DOWNLOAD_RESULT_OUT_OF_RANGE;
         }
     }
-    else if (length != s_download.last_block_length)
+    else if (length != s_download.previous_block_length)
     {
         return DOWNLOAD_RESULT_WRONG_BLOCK_SEQUENCE;
     }
@@ -238,8 +236,7 @@ download_result_t Download_Transfer(uint8_t block_sequence_counter,
 
     next_received = s_download.received + length;
     s_download.received = next_received;
-    s_download.last_block_length = length;
-    s_download.has_previous_block = true;
+    s_download.previous_block_length = length;
     s_download.state = DOWNLOAD_STATE_TRANSFERRING;
     s_download.next_block_sequence_counter =
         (uint8_t)(s_download.next_block_sequence_counter + 1U);

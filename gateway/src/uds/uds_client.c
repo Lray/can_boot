@@ -349,14 +349,14 @@ int uds_read_did(UdsClient *client, uint16_t did, uint8_t *data_out, size_t data
 /* SID: 0x34 RequestDownload - standard address and size fields. */
 int uds_request_download(UdsClient *client,
                          uint32_t image_size,
-                         UdsDownloadResponse *response_out)
+                         uint16_t *max_block_len_out)
 {
     uint8_t request[UDS_REQUEST_DOWNLOAD_REQUEST_LEN] = {0};
     uint8_t response[UDS_MAX_RESPONSE] = {0};
     size_t response_len = 0;
     int rc = 0;
 
-    if (!uds_client_is_ready(client) || response_out == NULL)
+    if (!uds_client_is_ready(client) || max_block_len_out == NULL)
     {
         return UDS_ERR_INVALID_ARG;
     }
@@ -379,7 +379,7 @@ int uds_request_download(UdsClient *client,
         return UDS_ERR_MALFORMED_RESPONSE;
     }
 
-    response_out->max_block_len = byte_order_get_u16_be(
+    *max_block_len_out = byte_order_get_u16_be(
         response + UDS_REQUEST_DOWNLOAD_RESPONSE_MAX_BLOCK_OFFSET);
     return 0;
 }

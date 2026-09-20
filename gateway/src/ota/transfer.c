@@ -42,7 +42,8 @@ int transfer_execute(UdsClient *client,
                             uint32_t image_size,
                             const uint8_t *image)
 {
-    UdsDownloadResponse response = {0};
+    uint16_t max_block_len = 0u;
+    uint16_t chunk_limit = 0u;
     uint32_t offset = 0u;
     uint8_t block_sequence = 1u;
     int rc = 0;
@@ -62,25 +63,28 @@ int transfer_execute(UdsClient *client,
 
     rc = uds_request_download(client,
                               image_size,
-                              &response);
+                              &max_block_len);
     if (rc != 0)
     {
         fprintf(stderr, "mcu-update-engine: request-download failed rc=%d nrc=0x%02X\n",
                 rc, client->last_nrc);
         return rc;
     }
-    if (response.max_block_len != TRANSFER_MAX_BLOCK_LENGTH)
+    if (max_block_len <= 2u)
     {
-        fprintf(stderr, "mcu-update-engine: request-download block length mismatch actual=%u expected=%u\n",
-                response.max_block_len, TRANSFER_MAX_BLOCK_LENGTH);
         return TRANSFER_ERR_BLOCK_PAYLOAD;
+    }
+    chunk_limit = (uint16_t)(max_block_len - 2u);
+    if (chunk_limit > TRANSFER_BLOCK_PAYLOAD)
+    {
+        chunk_limit = TRANSFER_BLOCK_PAYLOAD;
     }
 
     while (offset < image_size)
     {
         uint32_t remaining = image_size - offset;
-        uint16_t chunk = (uint16_t)(remaining > TRANSFER_BLOCK_PAYLOAD
-                                        ? TRANSFER_BLOCK_PAYLOAD
+        uint16_t chunk = (uint16_t)(remaining > chunk_limit
+                                        ? chunk_limit
                                         : remaining);
 
         rc = uds_transfer_data(client, block_sequence, image + offset, chunk);

@@ -51,7 +51,9 @@ P2/P2*、`0x78`、NRC 长度与事务上限逻辑。
 requestSequenceError `0x24`；Flash 失败返回 NRC `0x72`），再发送标准 `0x34`：
 `34 00 44 00 00 00 00 <size[4]>`，响应严格为 `74 20 01 02`。
 Gateway 从升级前 active slot 推导期望 inactive slot，仅用于复位后验证；MCU 自行决定实际写入槽。
-本 profile 的单 DID RDBI、固定地址、256 字节 TransferData、FF00 erase 和 token/signature
+Gateway 从 `0x74` 的 maxNumberOfBlockLength 扣除 SID 与 BSC 两字节，并以本地 256 字节
+发送上限分块；响应值不足 3 时拒绝传输。
+本 profile 的单 DID RDBI、固定地址、256 字节 TransferData 上限、FF00 erase 和 token/signature
 SecurityAccess 是产品策略，不改变 ISO 请求/响应结构。
 
 相关 host tests 位于 `tests/test_uds_client.c` 和 `tests/test_isotp_channel.c`：它们覆盖 P2* wire

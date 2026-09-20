@@ -75,7 +75,8 @@ static void put_u32_be(uint8_t *data, uint32_t value)
 
 static void expect_request_download(FakeTransport *fake,
                                     int index,
-                                    uint32_t image_size)
+                                    uint32_t image_size,
+                                    uint16_t max_block_len)
 {
     uint8_t *send = fake->expected_send[index];
     uint8_t *response = fake->responses[index];
@@ -90,9 +91,9 @@ static void expect_request_download(FakeTransport *fake,
     response[0] = SID_REQUEST_DOWNLOAD_POS;
     response[1] = DOWNLOAD_MAX_BLOCK_LEN_FORMAT_ID;
     response[UDS_REQUEST_DOWNLOAD_RESPONSE_MAX_BLOCK_OFFSET] =
-        (uint8_t)(TRANSFER_MAX_BLOCK_LENGTH >> 8);
+        (uint8_t)(max_block_len >> 8);
     response[UDS_REQUEST_DOWNLOAD_RESPONSE_MAX_BLOCK_OFFSET + 1U] =
-        (uint8_t)TRANSFER_MAX_BLOCK_LENGTH;
+        (uint8_t)max_block_len;
     fake->response_len[index] = UDS_REQUEST_DOWNLOAD_RESPONSE_LEN;
 }
 
@@ -191,7 +192,8 @@ static int expect_transfer_range(FakeTransport *fake,
                                  int index,
                                  const uint8_t *image,
                                  uint32_t start,
-                                 uint32_t end)
+                                 uint32_t end,
+                                 uint16_t chunk_limit)
 {
     uint32_t offset = start;
     uint8_t sequence = 0x01u;
@@ -199,8 +201,8 @@ static int expect_transfer_range(FakeTransport *fake,
     while (offset < end)
     {
         uint32_t remaining = end - offset;
-        uint16_t length = (uint16_t)(remaining > TRANSFER_BLOCK_PAYLOAD
-                                         ? TRANSFER_BLOCK_PAYLOAD
+        uint16_t length = (uint16_t)(remaining > chunk_limit
+                                         ? chunk_limit
                                          : remaining);
         expect_transfer(fake, index, sequence, image + offset, length);
         offset += length;
@@ -214,19 +216,19 @@ static void test_uds_download_primitives(void)
 {
     FakeTransport fake = {0};
     UdsClient client = make_client(&fake);
-    UdsDownloadResponse response = {0};
+    uint16_t max_block_len = 0u;
     uint8_t block[TRANSFER_BLOCK_PAYLOAD] = {0};
 
     for (size_t index = 0u; index < sizeof(block); index++)
     {
         block[index] = (uint8_t)index;
     }
-    expect_request_download(&fake, 0, sizeof(block));
+    expect_request_download(&fake, 0, sizeof(block), 258u);
     expect_transfer(&fake, 1, 0x01u, block, sizeof(block));
     expect_transfer_exit(&fake, 2);
 
-    assert(uds_request_download(&client, sizeof(block), &response) == 0);
-    assert(response.max_block_len == TRANSFER_MAX_BLOCK_LENGTH);
+    assert(uds_request_download(&client, sizeof(block), &max_block_len) == 0);
+    assert(max_block_len == 258u);
     assert(uds_transfer_data(&client, 0x01u, block, sizeof(block)) == 0);
     assert(uds_request_transfer_exit(&client) == 0);
 }
@@ -273,14 +275,14 @@ static void test_uds_request_download_negative_response(void)
 {
     FakeTransport fake = {0};
     UdsClient client = make_client(&fake);
-    UdsDownloadResponse response = {0};
-    expect_request_download(&fake, 0, 0U);
+    uint16_t max_block_len = 0u;
+    expect_request_download(&fake, 0, 0U, 258u);
     fake.responses[0][0] = NEGATIVE_RESPONSE_SID;
     fake.responses[0][1] = SID_REQUEST_DOWNLOAD;
     fake.responses[0][2] = NRC_REQUEST_OUT_OF_RANGE;
     fake.response_len[0] = 3U;
 
-    assert(uds_request_download(&client, 0U, &response) ==
+    assert(uds_request_download(&client, 0U, &max_block_len) ==
            UDS_ERR_NEGATIVE_RESPONSE);
     assert(client.last_nrc == NRC_REQUEST_OUT_OF_RANGE);
 }
@@ -289,11 +291,11 @@ static void test_uds_request_download_length_mismatch(void)
 {
     FakeTransport fake = {0};
     UdsClient client = make_client(&fake);
-    UdsDownloadResponse response = {0};
-    expect_request_download(&fake, 0, 512U);
+    uint16_t max_block_len = 0u;
+    expect_request_download(&fake, 0, 512U, 258u);
     fake.response_len[0] = 5U;
 
-    assert(uds_request_download(&client, 512U, &response) ==
+    assert(uds_request_download(&client, 512U, &max_block_len) ==
            UDS_ERR_MALFORMED_RESPONSE);
 }
 
@@ -327,16 +329,69 @@ static void test_execute_fresh_transfer(void)
     fill_image(image, sizeof(image));
     expect_erase_memory_start(&fake, 0);
     expect_erase_memory_results(&fake, 1);
-    expect_request_download(&fake, 2, TEST_IMAGE_SIZE);
+    expect_request_download(&fake, 2, TEST_IMAGE_SIZE, 258u);
     next_index = expect_transfer_range(&fake,
                                        3,
                                        image,
                                        0u,
-                                       TEST_IMAGE_SIZE);
+                                       TEST_IMAGE_SIZE,
+                                       TRANSFER_BLOCK_PAYLOAD);
     expect_transfer_exit(&fake, next_index);
 
     assert(transfer_execute(&client, TEST_IMAGE_SIZE, image) == 0);
     assert(fake.send_count == next_index + 1);
+}
+
+static void test_execute_uses_ecu_block_length(void)
+{
+    FakeTransport fake = {0};
+    UdsClient client = make_client(&fake);
+    uint8_t image[130] = {0};
+    int next_index = 0;
+
+    fill_image(image, sizeof(image));
+    expect_erase_memory_start(&fake, 0);
+    expect_erase_memory_results(&fake, 1);
+    expect_request_download(&fake, 2, sizeof(image), 66u);
+    next_index = expect_transfer_range(&fake, 3, image, 0u, sizeof(image), 64u);
+    expect_transfer_exit(&fake, next_index);
+
+    assert(transfer_execute(&client, sizeof(image), image) == 0);
+    assert(fake.send_count == next_index + 1);
+}
+
+static void test_execute_caps_large_ecu_block_length(void)
+{
+    FakeTransport fake = {0};
+    UdsClient client = make_client(&fake);
+    uint8_t image[300] = {0};
+    int next_index = 0;
+
+    fill_image(image, sizeof(image));
+    expect_erase_memory_start(&fake, 0);
+    expect_erase_memory_results(&fake, 1);
+    expect_request_download(&fake, 2, sizeof(image), 1024u);
+    next_index = expect_transfer_range(&fake, 3, image, 0u, sizeof(image),
+                                       TRANSFER_BLOCK_PAYLOAD);
+    expect_transfer_exit(&fake, next_index);
+
+    assert(transfer_execute(&client, sizeof(image), image) == 0);
+    assert(fake.send_count == next_index + 1);
+}
+
+static void test_execute_rejects_no_payload_capacity(void)
+{
+    FakeTransport fake = {0};
+    UdsClient client = make_client(&fake);
+    uint8_t image[1] = {0};
+
+    expect_erase_memory_start(&fake, 0);
+    expect_erase_memory_results(&fake, 1);
+    expect_request_download(&fake, 2, sizeof(image), 2u);
+
+    assert(transfer_execute(&client, sizeof(image), image) ==
+           TRANSFER_ERR_BLOCK_PAYLOAD);
+    assert(fake.send_count == 3);
 }
 
 int main(void)
@@ -348,5 +403,8 @@ int main(void)
     test_uds_request_download_length_mismatch();
     test_uds_transfer_wrong_block_sequence_nrc();
     test_execute_fresh_transfer();
+    test_execute_uses_ecu_block_length();
+    test_execute_caps_large_ecu_block_length();
+    test_execute_rejects_no_payload_capacity();
     return 0;
 }

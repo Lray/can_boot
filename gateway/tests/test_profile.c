@@ -30,7 +30,6 @@ int main(void)
     assert(SESSION_DEFAULT == 0x01u);
     assert(NRC_BUSY_REPEAT_REQUEST == 0x21u);
     assert(TRANSFER_BLOCK_PAYLOAD == 256u);
-    assert(TRANSFER_MAX_BLOCK_LENGTH == 258u);
     assert(MCUBOOT_IMAGE_VERSION_SIZE_BYTES == 8u);
     assert(UDS_REQUEST_DOWNLOAD_REQUEST_LEN == 11u);
     assert(UDS_REQUEST_DOWNLOAD_RESPONSE_LEN == 4u);
