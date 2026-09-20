@@ -61,14 +61,6 @@ int main(int argc, char **argv)
 
     int rc;
 
-    rc = uds_enter_session(&client, SESSION_EXTENDED);
-    if (rc != 0) {
-        fprintf(stderr, "DiagnosticSessionControl extended failed rc=%d nrc=0x%02X\n", rc, client.last_nrc);
-        isotp_channel_close(&channel);
-        return 1;
-    }
-    printf("DiagnosticSessionControl 0x03 PASS\n");
-
     rc = uds_enter_session(&client, SESSION_PROGRAMMING);
     if (rc != 0) {
         fprintf(stderr, "DiagnosticSessionControl programming failed rc=%d nrc=0x%02X\n", rc, client.last_nrc);

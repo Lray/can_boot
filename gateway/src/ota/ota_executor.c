@@ -79,13 +79,8 @@ OtaState_t ota_executor_run(const OtaExecutorConfig_t *config,
     {
         return OTA_STATE_PACKAGE_VALIDATED;
     }
-    /* 0x10 03: DiagnosticSessionControl -> Extended Session. */
-    rc = uds_enter_session(config->client, SESSION_EXTENDED);
-    if (rc == 0)
-    {
-        /* 0x10 02: DiagnosticSessionControl -> Programming Session. */
-        rc = uds_enter_session(config->client, SESSION_PROGRAMMING);
-    }
+    /* 0x10 02: DiagnosticSessionControl -> Programming Session. */
+    rc = uds_enter_session(config->client, SESSION_PROGRAMMING);
     if (rc != 0)
     {
         return OTA_STATE_PACKAGE_VALIDATED;

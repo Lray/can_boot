@@ -120,11 +120,11 @@ static void test_session_response_negotiates_timing(void)
     size_t data_len = 0u;
 
     fake.expected_send[0] = SID_DIAGNOSTIC_SESSION_CONTROL;
-    fake.expected_send[1] = SESSION_EXTENDED;
+    fake.expected_send[1] = SESSION_PROGRAMMING;
     fake.expected_send_len = 2u;
-    set_session_response(&fake, 0, SESSION_EXTENDED, 20u, 100u);
+    set_session_response(&fake, 0, SESSION_PROGRAMMING, 20u, 100u);
 
-    assert(uds_enter_session(&client, SESSION_EXTENDED) == 0);
+    assert(uds_enter_session(&client, SESSION_PROGRAMMING) == 0);
     assert(client.p2_server_max_ms == 20u);
     assert(client.p2_star_server_max_ms == 1000u);
 
@@ -180,6 +180,25 @@ static void test_tester_present(void)
     fake.response_lens[0] = 2;
 
     assert(uds_tester_present(&client) == 0);
+}
+
+static void test_tester_present_rejects_invalid_lengths(void)
+{
+    FakeTransport_t fake = {0};
+    UdsClient client = make_client(&fake);
+
+    fake.expected_send[0] = SID_TESTER_PRESENT;
+    fake.expected_send[1] = 0x00u;
+    fake.expected_send_len = 2u;
+    fake.responses[0][0] = SID_TESTER_PRESENT_POS;
+    fake.responses[0][1] = 0x00u;
+    fake.responses[0][2] = 0xAAu;
+    fake.response_lens[0] = 3u;
+    assert(uds_tester_present(&client) == UDS_ERR_UNEXPECTED_RESPONSE);
+
+    fake.recv_count = 0;
+    fake.response_lens[0] = 1u;
+    assert(uds_tester_present(&client) == UDS_ERR_UNEXPECTED_RESPONSE);
 }
 
 static void test_mcu_reset_restores_default_timing(void)
@@ -539,6 +558,7 @@ int main(void)
     test_session_response_negotiates_timing();
     test_session_response_requires_timing_parameters();
     test_tester_present();
+    test_tester_present_rejects_invalid_lengths();
     test_mcu_reset_restores_default_timing();
     test_security_token_requires_response_pending_for_extended_processing();
     test_read_did_copies_payload();

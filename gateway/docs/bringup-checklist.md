@@ -73,7 +73,6 @@ cd /opt/can-ota-gateway
 
 Required evidence:
 
-- positive `0x10 03` extended diagnostic session response
 - positive `0x10 02` programming session response
 - positive `0x3E 00` TesterPresent response
 - positive `0x22` reads for `0xF1F0` through `0xF1F4` (and `0xF1F5` for LSS identity)

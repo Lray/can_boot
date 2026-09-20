@@ -13,8 +13,8 @@ and image SHA once before the executor is called. This is a transfer-boundary
 format/integrity check, not a signature, TLV, rollback, or boot-authenticity
 decision. MCUboot on the MCU owns those final decisions.
 
-`ota_executor` then owns, in one sequence: stable MCU observation; extended
-and programming session entry; SecurityAccess authorization for entering OTA;
+`ota_executor` then owns, in one sequence: stable MCU observation; programming
+session entry; SecurityAccess authorization for entering OTA;
 the EraseMemory routine; standard `0x34` download request; `0x36/0x37` transfer; hard
 reset; reconnect; and post-reset classification.
 

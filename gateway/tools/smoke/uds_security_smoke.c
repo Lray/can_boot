@@ -38,9 +38,6 @@ int main(int argc, char **argv)
     }
     uds_client_init(&client, isotp_channel_transport_ops(), &channel);
 
-    printf("== enter extended ==\n");
-    rc = uds_enter_session(&client, SESSION_EXTENDED);
-    printf("extended rc=%d nrc=0x%02X\n", rc, client.last_nrc);
     printf("== enter programming ==\n");
     rc = uds_enter_session(&client, SESSION_PROGRAMMING);
     printf("programming rc=%d nrc=0x%02X\n", rc, client.last_nrc);

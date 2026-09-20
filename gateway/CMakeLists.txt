@@ -289,6 +289,13 @@ add_executable(test-gateway-uds-client
 target_link_libraries(test-gateway-uds-client PRIVATE gateway-core)
 add_test(NAME gateway-uds-client COMMAND test-gateway-uds-client)
 
+add_executable(test-gateway-ota-session
+    tests/test_ota_executor_session.c
+    src/ota/ota_executor.c
+)
+target_include_directories(test-gateway-ota-session PRIVATE ${GATEWAY_INCLUDE_DIRS})
+add_test(NAME gateway-ota-session COMMAND test-gateway-ota-session)
+
 add_executable(test-gateway-log-receiver
     tests/test_log_receiver.c
     src/log/log_frame.c

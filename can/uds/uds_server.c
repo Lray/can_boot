@@ -103,7 +103,7 @@ static bool UDS_SendNegative(uint8_t sid, uint8_t nrc)
     return true;
 }
 
-static bool UDS_RequireDownloadSessionAndUnlock(uint8_t sid)
+static bool UDS_RequireProgrammingSessionAndUnlock(uint8_t sid)
 {
     if (s_session != SESSION_PROGRAMMING)
     {
@@ -227,8 +227,7 @@ static void UDS_HandleSessionControl(const uint8_t *request, uint16_t length)
 
     session = request[1] & UDS_SUBFUNCTION_VALUE_MASK;
     if ((session != SESSION_DEFAULT) &&
-        (session != SESSION_PROGRAMMING) &&
-        (session != SESSION_EXTENDED))
+        (session != SESSION_PROGRAMMING))
     {
         UDS_SendNegative(SID_DIAGNOSTIC_SESSION_CONTROL,
                              NRC_SUBFUNCTION_NOT_SUPPORTED);
@@ -463,7 +462,7 @@ static void UDS_HandleRequestDownload(const uint8_t *request, uint16_t length)
         return;
     }
 
-    if (!UDS_RequireDownloadSessionAndUnlock(
+    if (!UDS_RequireProgrammingSessionAndUnlock(
             SID_REQUEST_DOWNLOAD))
     {
         return;
@@ -523,7 +522,7 @@ static void UDS_HandleRoutineControl(const uint8_t *request, uint16_t length)
     return;
   }
 
-  if (!UDS_RequireDownloadSessionAndUnlock(SID_ROUTINE_CONTROL))
+  if (!UDS_RequireProgrammingSessionAndUnlock(SID_ROUTINE_CONTROL))
   {
     return;
   }
@@ -583,7 +582,7 @@ static void UDS_HandleTransferData(const uint8_t *request, uint16_t length)
     return;
   }
 
-  if (!UDS_RequireDownloadSessionAndUnlock(SID_TRANSFER_DATA))
+  if (!UDS_RequireProgrammingSessionAndUnlock(SID_TRANSFER_DATA))
   {
     return;
   }
@@ -619,7 +618,7 @@ static void UDS_HandleRequestTransferExit(const uint8_t *request, uint16_t lengt
     return;
   }
 
-  if (!UDS_RequireDownloadSessionAndUnlock(SID_REQUEST_TRANSFER_EXIT))
+  if (!UDS_RequireProgrammingSessionAndUnlock(SID_REQUEST_TRANSFER_EXIT))
   {
     return;
   }
@@ -659,7 +658,7 @@ static void UDS_HandleMcuReset(const uint8_t *request, uint16_t length)
         return;
     }
 
-    if (!UDS_RequireDownloadSessionAndUnlock(
+    if (!UDS_RequireProgrammingSessionAndUnlock(
             SID_MCU_RESET))
     {
         return;

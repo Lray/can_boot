@@ -73,13 +73,12 @@ static int uds_client_accept_session_control_response(UdsClient *client, uint8_t
  * SID: 0x10 DiagnosticSessionControl - switch the MCU diagnostic session.
  *
  * Request wire format: 0x10 <session_type>.
- * The update engine sends 0x10 03 for Extended Session, followed by 0x10 02 for
- * Programming Session. 0x10 01 would return to Default Session.
+ * The update engine sends 0x10 02 for Programming Session. 0x10 01 returns
+ * to Default Session.
  *
  * session_type values:
  *   SESSION_DEFAULT    (0x01): normal diagnostic operation.
  *   SESSION_PROGRAMMING (0x02): MCU reprogramming and download operations.
- *   SESSION_EXTENDED  (0x03): extended diagnostics and OTA preparation.
  *
  * On success, the client adopts the MCU's P2ServerMax and P2*ServerMax
  * timing parameters from the positive response.
@@ -123,7 +122,7 @@ int uds_tester_present(UdsClient *client)
     {
         return rc;
     }
-    if (response_len < 2u || response[1] != 0x00u)
+    if (response_len != 2u || response[1] != 0x00u)
     {
         return UDS_ERR_UNEXPECTED_RESPONSE;
     }

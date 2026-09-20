@@ -50,7 +50,6 @@
 /* --- Diagnostic sessions --- */
 #define SESSION_DEFAULT 0x01U
 #define SESSION_PROGRAMMING 0x02U
-#define SESSION_EXTENDED 0x03U
 #define SUB_HARD_RESET 0x01U
 
 /* --- SecurityAccess subfunction levels (from security_access_level.h) --- */
