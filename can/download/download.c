@@ -189,7 +189,7 @@ download_result_t Download_Transfer(uint8_t block_sequence_counter,
     {
         return DOWNLOAD_RESULT_INCORRECT_LENGTH;
     }
-    /* A lost positive response may cause the already committed block to be resent. */
+    /* 正响应丢失时，已写入的上一块可能以相同 BSC 重发。 */
     if (block_sequence_counter != s_download.next_block_sequence_counter &&
         (s_download.previous_block_length == 0U ||
          block_sequence_counter !=
