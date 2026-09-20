@@ -3,7 +3,6 @@
 
 #include <stdint.h>
 
-#include "shared/payload_id_format.h"
 
 #define DOWNLOAD_MAX_TRANSFER_PAYLOAD 256U
 #define DOWNLOAD_MAX_BLOCK_LENGTH 258U
@@ -30,12 +29,13 @@ typedef enum
 
 /** Clears the RAM-resident download session. */
 void Download_Init(void);
+/** Abort the current diagnostic download without erasing programmed data. */
+void Download_Abort(void);
 
 /**
  * Select the inactive slot and start erasing it.
  *
- * The image identity is bound later by Download_Begin through the 0x34
- * request; erasing itself needs no request parameters.
+ * Erasing needs no request parameters.
  */
 download_result_t Download_Prepare(void);
 
@@ -49,13 +49,9 @@ download_preparation_status_t Download_GetPreparationStatus(void);
  * Validate the requested image against the prepared slot and open the
  * data-transfer phase.
  *
- * @param payload_id Exact image byte-stream SHA-256; must be non-NULL.
  * @param image_size Exact payload length; must fit in the inactive slot.
  */
-download_result_t Download_Begin(
-    const uint8_t payload_id[PAYLOAD_ID_SIZE],
-    uint32_t image_size,
-    uint8_t *target_slot_out);
+download_result_t Download_Begin(uint32_t image_size);
 
 /** Program one validated TransferData block into the inactive slot. */
 download_result_t Download_Transfer(uint8_t block_sequence_counter,

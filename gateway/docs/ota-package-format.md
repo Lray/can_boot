@@ -43,7 +43,7 @@ Remote Handler endpoint 仅允许受控的 SWUpdate 进程访问；MCU 的 MCUbo
 | 内部事务 ID | `mcu-updater` 在接收 `INIT` 后生成的 UUID；不来自发布配置 |
 | `image_size` | `image.bin` 文件长度 |
 | 接收审计摘要 | `package_store` 对收到的 `image.bin` 流式计算 SHA-256 |
-| `image_sha256`（续传 payload_id） | updater 打开已发布文件后独立计算 SHA-256 |
+| `image_sha256`（本地完整性检查） | updater 打开已发布文件后独立计算 SHA-256；不通过 `0x34` 传输 |
 | 目标版本（判卷依据） | MCUboot header 固定偏移（`ih_magic==0x96F3B83D` 门禁后读 `ih_ver`），即 `major.minor.revision+build` 完整四段 |
 
 Gateway 对 header 的读取是声明性读取，用于传输决策与升级判卷；header 布局、

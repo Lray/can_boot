@@ -18,6 +18,7 @@ static bool s_suppress_positive_response;
 static bool s_reset_accepted;
 static uint32_t s_now_ms;
 static uint32_t s_s3_session_timeout_timer;
+static bool s_restart_s3_after_response;
 static const uds_transport_t *s_transport;
 
 #define UDS_POSITIVE_RESPONSE_BUFFER_SIZE UDS_READ_DID_RESPONSE_MAX_SIZE
@@ -29,12 +30,25 @@ static bool UDS_ResponseInProgress(void)
 
 static void UDS_PollS3(uint32_t now_ms)
 {
+  if (s_restart_s3_after_response)
+  {
+    if (UDS_ResponseInProgress())
+    {
+      return;
+    }
+    s_restart_s3_after_response = false;
+    if (s_session != SESSION_DEFAULT)
+    {
+      s_s3_session_timeout_timer = now_ms + UDS_SERVER_DEFAULT_S3_MS;
+    }
+  }
   if ((s_session != SESSION_DEFAULT) &&
       ((int32_t)(now_ms - s_s3_session_timeout_timer) >= 0))
   {
     GW_LOG_I("diagnostic session timeout");
     s_session = SESSION_DEFAULT;
     SecurityAccess_ClearUnlock();
+    Download_Abort();
   }
 }
 
@@ -93,7 +107,10 @@ static bool UDS_RequireDownloadSessionAndUnlock(uint8_t sid)
 {
     if (s_session != SESSION_PROGRAMMING)
     {
-        UDS_SendNegative(sid, NRC_CONDITIONS_NOT_CORRECT);
+        UDS_SendNegative(sid,
+                         (sid == SID_ROUTINE_CONTROL || sid == SID_MCU_RESET)
+                             ? NRC_SUBFUNCTION_NOT_SUPPORTED_IN_ACTIVE_SESSION
+                             : NRC_SERVICE_NOT_SUPPORTED_IN_ACTIVE_SESSION);
         return false;
     }
 
@@ -218,6 +235,10 @@ static void UDS_HandleSessionControl(const uint8_t *request, uint16_t length)
     if (s_session != session)
     {
         SecurityAccess_ClearUnlock();
+        if (s_session == SESSION_PROGRAMMING)
+        {
+            Download_Abort();
+        }
     }
     s_session = session;
     if (session != SESSION_DEFAULT)
@@ -256,7 +277,6 @@ static void UDS_HandleTesterPresent(const uint8_t *request, uint16_t length)
     return;
   }
 
-  s_s3_session_timeout_timer = s_now_ms + UDS_SERVER_DEFAULT_S3_MS;
   rsp[0] = subfunction;
   (void)UDS_SendPositive(
       SID_TESTER_PRESENT, rsp, sizeof(rsp), s_suppress_positive_response);
@@ -328,15 +348,20 @@ static void UDS_HandleSecurityAccess(const uint8_t *request, uint16_t length)
     return;
   }
 
+  subfunction = request[1];
+  level = (uint8_t)(subfunction & UDS_SUBFUNCTION_VALUE_MASK);
+  if (level != SECURITY_ACCESS_LEVEL_PROGRAMMING_SEED &&
+      level != SECURITY_ACCESS_LEVEL_PROGRAMMING_KEY)
+  {
+    UDS_SendNegative(SID_SECURITY_ACCESS, NRC_SUBFUNCTION_NOT_SUPPORTED);
+    return;
+  }
   if (s_session != SESSION_PROGRAMMING)
   {
     UDS_SendNegative(SID_SECURITY_ACCESS,
-                         NRC_CONDITIONS_NOT_CORRECT);
+                     NRC_SUBFUNCTION_NOT_SUPPORTED_IN_ACTIVE_SESSION);
     return;
   }
-
-  subfunction = request[1];
-  level = (uint8_t)(subfunction & UDS_SUBFUNCTION_VALUE_MASK);
   if (level == SECURITY_ACCESS_LEVEL_PROGRAMMING_SEED)
   {
     uint8_t rsp[1U + SECURITY_ACCESS_SEED_SIZE];
@@ -407,7 +432,7 @@ static void UDS_HandleSecurityAccess(const uint8_t *request, uint16_t length)
                        NRC_SUBFUNCTION_NOT_SUPPORTED);
 }
 
-static bool UDS_SendDownloadResponse(uint8_t target_slot)
+static bool UDS_SendDownloadResponse(void)
 {
   uint8_t rsp[UDS_REQUEST_DOWNLOAD_RESPONSE_LEN - 1U] = {0};
 
@@ -416,7 +441,6 @@ static bool UDS_SendDownloadResponse(uint8_t target_slot)
       (uint8_t)(DOWNLOAD_MAX_BLOCK_LENGTH >> 8);
   rsp[UDS_REQUEST_DOWNLOAD_RESPONSE_MAX_BLOCK_OFFSET] =
       (uint8_t)DOWNLOAD_MAX_BLOCK_LENGTH;
-  rsp[UDS_REQUEST_DOWNLOAD_RESPONSE_TARGET_SLOT_OFFSET - 1U] = target_slot;
   return UDS_SendPositive(SID_REQUEST_DOWNLOAD,
                                          rsp,
                                          sizeof(rsp),
@@ -428,7 +452,6 @@ static void UDS_HandleRequestDownload(const uint8_t *request, uint16_t length)
     uint32_t address = 0U;
     uint32_t size = 0U;
     download_result_t result = DOWNLOAD_RESULT_SEQUENCE_ERROR;
-    uint8_t target_slot = SLOT_INVALID;
 
     if (length != UDS_REQUEST_DOWNLOAD_REQUEST_LEN)
     {
@@ -459,10 +482,7 @@ static void UDS_HandleRequestDownload(const uint8_t *request, uint16_t length)
         return;
     }
 
-    result = Download_Begin(
-        &request[UDS_REQUEST_DOWNLOAD_PAYLOAD_ID_OFFSET],
-        size,
-        &target_slot);
+    result = Download_Begin(size);
     if (result != DOWNLOAD_RESULT_OK)
     {
         UDS_SendNegative(
@@ -471,7 +491,7 @@ static void UDS_HandleRequestDownload(const uint8_t *request, uint16_t length)
         return;
     }
 
-    (void)UDS_SendDownloadResponse(target_slot);
+    (void)UDS_SendDownloadResponse();
 }
 
 static void UDS_HandleRoutineControl(const uint8_t *request, uint16_t length)
@@ -491,6 +511,12 @@ static void UDS_HandleRoutineControl(const uint8_t *request, uint16_t length)
   if (routine_id != ROUTINE_ID_ERASE_MEMORY)
   {
     UDS_SendNegative(SID_ROUTINE_CONTROL, NRC_REQUEST_OUT_OF_RANGE);
+    return;
+  }
+  if (subfunction != ROUTINE_CONTROL_START &&
+      subfunction != ROUTINE_CONTROL_REQUEST_RESULTS)
+  {
+    UDS_SendNegative(SID_ROUTINE_CONTROL, NRC_SUBFUNCTION_NOT_SUPPORTED);
     return;
   }
 
@@ -518,13 +544,7 @@ static void UDS_HandleRoutineControl(const uint8_t *request, uint16_t length)
     return;
   }
 
-  if (subfunction != ROUTINE_CONTROL_REQUEST_RESULTS)
-  {
-    UDS_SendNegative(SID_ROUTINE_CONTROL, NRC_SUBFUNCTION_NOT_SUPPORTED);
-    return;
-  }
-  /* ARDEP-aligned results: not completed -> NRC 0x24; completed -> positive
-   * response with a 4-byte BE status record (0x00000000 / 0x00000072). */
+  /* Results not ready -> NRC 0x24; flash failure -> NRC 0x72. */
   switch (Download_GetPreparationStatus())
   {
     case DOWNLOAD_PREPARATION_READY:
@@ -532,8 +552,8 @@ static void UDS_HandleRoutineControl(const uint8_t *request, uint16_t length)
       break;
 
     case DOWNLOAD_PREPARATION_FAILED:
-      UDS_Msg_WriteBe32(&rsp[3], ROUTINE_ERASE_RESULT_FAILURE);
-      break;
+      UDS_SendNegative(SID_ROUTINE_CONTROL, NRC_GENERAL_PROGRAMMING_FAILURE);
+      return;
 
     case DOWNLOAD_PREPARATION_PENDING:
     case DOWNLOAD_PREPARATION_IDLE:
@@ -662,6 +682,7 @@ void UDS_Init(const uds_transport_t *transport)
     s_reset_accepted = false;
     s_now_ms = 0U;
     s_s3_session_timeout_timer = 0U;
+    s_restart_s3_after_response = false;
     s_suppress_positive_response = false;
     SecurityAccess_Init();
     Download_Init();
@@ -742,6 +763,11 @@ void UDS_Dispatch(const uint8_t *request, uint16_t length)
   }
 
   s_suppress_positive_response = false;
+  if (s_session != SESSION_DEFAULT)
+  {
+    s_restart_s3_after_response = true;
+    UDS_PollS3(s_now_ms);
+  }
 }
 
 bool UDS_ConsumeAcceptedReset(void)

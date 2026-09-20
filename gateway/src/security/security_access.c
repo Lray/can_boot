@@ -28,6 +28,19 @@ int security_access_unlock(UdsClient *client, const TokenSignerClient_t *signer)
         return SECURITY_ERR_INVALID_ARG;
     }
     rc = uds_security_request_seed(client, seed, sizeof(seed), &seed_len);
+    if (rc == 0 && seed_len == SECURITY_ACCESS_SEED_SIZE)
+    {
+        bool already_unlocked = true;
+        for (size_t index = 0u; index < seed_len; index++)
+        {
+            already_unlocked = already_unlocked && seed[index] == 0u;
+        }
+        if (already_unlocked)
+        {
+            secure_zero(seed, sizeof(seed));
+            return 0;
+        }
+    }
     if (rc == 0)
     {
         /*请求签名进程对种子挑战完成签名*/

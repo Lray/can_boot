@@ -8,7 +8,6 @@
 static int wait_for_erase_completion(UdsClient *client)
 {
     uint64_t deadline = util_monotonic_ms() + DOWNLOAD_PREPARATION_TIMEOUT_MS;
-    uint64_t last_keepalive_ms = util_monotonic_ms();
     bool complete = false;
     int rc = uds_erase_memory(client);
 
@@ -20,18 +19,12 @@ static int wait_for_erase_completion(UdsClient *client)
     {
         uint64_t now_ms = util_monotonic_ms();
 
-        if ((int64_t)(now_ms - last_keepalive_ms) >=
-            UDS_KEEPALIVE_INTERVAL_MS)
-        {
-            (void)uds_tester_present(client);
-            last_keepalive_ms = now_ms;
-        }
         rc = uds_erase_memory_results(client, &complete);
         if (rc == 0 && complete)
         {
             return 0;
         }
-        /* ARDEP-aligned pending: the MCU answers NRC 0x24 while erasing. */
+        /* RequestRoutineResults before results are ready returns NRC 0x24. */
         if (rc != 0 && !(rc == UDS_ERR_NEGATIVE_RESPONSE &&
                          client->last_nrc == NRC_REQUEST_SEQUENCE_ERROR))
         {
@@ -46,17 +39,15 @@ static int wait_for_erase_completion(UdsClient *client)
 }
 
 int transfer_execute(UdsClient *client,
-                            const uint8_t payload_id[PAYLOAD_ID_SIZE],
                             uint32_t image_size,
-                            const uint8_t *image,
-                            uint8_t *target_slot_out)
+                            const uint8_t *image)
 {
     UdsDownloadResponse response = {0};
     uint32_t offset = 0u;
     uint8_t block_sequence = 1u;
     int rc = 0;
 
-    if (client == NULL || payload_id == NULL || target_slot_out == NULL || image == NULL)
+    if (client == NULL || image == NULL)
     {
         return TRANSFER_ERR_INVALID_ARG;
     }
@@ -70,7 +61,6 @@ int transfer_execute(UdsClient *client,
     }
 
     rc = uds_request_download(client,
-                              payload_id,
                               image_size,
                               &response);
     if (rc != 0)
@@ -84,12 +74,6 @@ int transfer_execute(UdsClient *client,
         fprintf(stderr, "mcu-update-engine: request-download block length mismatch actual=%u expected=%u\n",
                 response.max_block_len, TRANSFER_MAX_BLOCK_LENGTH);
         return TRANSFER_ERR_BLOCK_PAYLOAD;
-    }
-    if (response.target_slot > OTA_SLOT_B)
-    {
-        fprintf(stderr, "mcu-update-engine: request-download invalid target slot=%u\n",
-                response.target_slot);
-        return TRANSFER_ERR_IDENTITY_MISMATCH;
     }
 
     while (offset < image_size)
@@ -106,7 +90,6 @@ int transfer_execute(UdsClient *client,
                     block_sequence, rc, client->last_nrc);
             return rc;
         }
-        (void)uds_tester_present(client);
         offset += chunk;
         block_sequence++;
     }
@@ -119,6 +102,5 @@ int transfer_execute(UdsClient *client,
         return rc;
     }
 
-    *target_slot_out = response.target_slot;
     return 0;
 }

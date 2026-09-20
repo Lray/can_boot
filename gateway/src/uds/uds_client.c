@@ -262,8 +262,7 @@ int uds_erase_memory(UdsClient *client)
  * Request wire format: 0x31 03 FF 00. While erasing, the MCU answers
  * NRC 0x24 RequestSequenceError (treated as "still pending" by the caller).
  * Completed erasures answer 0x71 0x03 0xFF 0x00 plus a 4-byte BE status
- * record: 0x00000000 = success, 0x00000072 = failure (mapped to
- * UDS_ERR_NEGATIVE_RESPONSE with last_nrc kept for diagnostics).
+ * record: 0x00000000 = success. Flash failure is NRC 0x72.
  */
 int uds_erase_memory_results(UdsClient *client, bool *complete_out)
 {
@@ -300,11 +299,6 @@ int uds_erase_memory_results(UdsClient *client, bool *complete_out)
     {
         *complete_out = true;
         return 0;
-    }
-    if (record == ROUTINE_ERASE_RESULT_FAILURE)
-    {
-        client->last_nrc = (uint8_t)record;
-        return UDS_ERR_NEGATIVE_RESPONSE;
     }
     return UDS_ERR_MALFORMED_RESPONSE;
 }
@@ -352,9 +346,8 @@ int uds_read_did(UdsClient *client, uint16_t did, uint8_t *data_out, size_t data
     return 0;
 }
 
-/* SID: 0x34 RequestDownload - bind the payload identity. */
+/* SID: 0x34 RequestDownload - standard address and size fields. */
 int uds_request_download(UdsClient *client,
-                         const uint8_t payload_id[PAYLOAD_ID_SIZE],
                          uint32_t image_size,
                          UdsDownloadResponse *response_out)
 {
@@ -363,19 +356,16 @@ int uds_request_download(UdsClient *client,
     size_t response_len = 0;
     int rc = 0;
 
-    if (!uds_client_is_ready(client) || payload_id == NULL || response_out == NULL)
+    if (!uds_client_is_ready(client) || response_out == NULL)
     {
         return UDS_ERR_INVALID_ARG;
     }
 
     request[0] = SID_REQUEST_DOWNLOAD;
-    request[1] = 0x00u;
-    request[2] = 0x44u;
+    request[1] = DOWNLOAD_DATA_FORMAT_ID;
+    request[2] = DOWNLOAD_ADDR_LEN_FORMAT_ID;
     byte_order_put_u32_be(request + 3u, DOWNLOAD_MEMORY_ADDRESS);
     byte_order_put_u32_be(request + 7u, image_size);
-    memcpy(request + UDS_REQUEST_DOWNLOAD_PAYLOAD_ID_OFFSET,
-           payload_id,
-           PAYLOAD_ID_SIZE);
 
     rc = uds_transaction_request(client, request, sizeof(request), response,
                                  sizeof(response), &response_len);
@@ -391,8 +381,6 @@ int uds_request_download(UdsClient *client,
 
     response_out->max_block_len = byte_order_get_u16_be(
         response + UDS_REQUEST_DOWNLOAD_RESPONSE_MAX_BLOCK_OFFSET);
-    response_out->target_slot =
-        response[UDS_REQUEST_DOWNLOAD_RESPONSE_TARGET_SLOT_OFFSET];
     return 0;
 }
 

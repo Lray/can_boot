@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
@@ -14,6 +15,7 @@ typedef struct
     uint8_t last_request[SECURITY_ACCESS_TOKEN_MAX_SIZE + 2u];
     size_t last_request_len;
     unsigned int request_count;
+    bool zero_seed;
 } FakeTransport_t;
 
 static int fake_send(void *ctx, const uint8_t *data, size_t length)
@@ -46,6 +48,10 @@ static int fake_receive(void *ctx, uint8_t *data, size_t data_cap, size_t *data_
 
         assert(data_cap >= sizeof(response));
         memcpy(data, response, sizeof(response));
+        if (transport->zero_seed)
+        {
+            memset(data + 2u, 0, SECURITY_ACCESS_SEED_SIZE);
+        }
         *data_len = sizeof(response);
     }
     else
@@ -70,7 +76,7 @@ int main(void)
 {
     static const TransportOps operations = {fake_send, fake_receive};
     static const uint8_t expected_seed[] = {0x10u, 0x20u, 0x30u, 0x40u};
-    FakeTransport_t transport = {{0}, 0u, 0u};
+    FakeTransport_t transport = {0};
     FakeSignerSession_t signer_server = {0};
     TokenSignerClient_t signer = {0};
     UdsClient client = {0};
@@ -87,5 +93,12 @@ int main(void)
 
     assert(security_access_unlock(&client, &signer) == 0);
     assert(transport.request_count == 2u);
-    return fake_signer_join(&signer_server) == 0 ? 0 : 1;
+    assert(fake_signer_join(&signer_server) == 0);
+
+    transport = (FakeTransport_t){{0}, 0u, 0u, true};
+    signer.endpoint = "/nonexistent/signer";
+    uds_client_init(&client, &operations, &transport);
+    assert(security_access_unlock(&client, &signer) == 0);
+    assert(transport.request_count == 1u);
+    return 0;
 }

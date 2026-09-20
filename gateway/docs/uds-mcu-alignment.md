@@ -25,16 +25,13 @@ gateway 是 MCU 的 UDS client，不是第二个 UDS server。它不生成 `0x78
 每个服务都先按当前 P2 等待（多帧请求额外计入本端 ISO-TP 发包裕量）。gateway 不会因为服务
 类型、长 token 或 Flash routine 而直接把首次等待放宽到 P2*。
 
-## S3 会话维持（对齐 ISO 14229-1 / iso14229 参考实现）
+## S3 会话维持
 
-- MCU 端 S3Server 定时器 = `UDS_SERVER_DEFAULT_S3_MS`（5100 ms，ISO 14229-2 Table 5
-  "5000 −0/+200 ms" 容差上限），仅由 `0x10` 进入非默认会话与 `0x3E`（子功能 0x00/0x80）
-  重置；普通业务请求不重置。
-- 到期检查在每轮 `UDS_PollS3` 无条件执行（响应传输中不暂停），超时后 MCU 回默认会话并清除
-  安全解锁状态。
-- gateway 承担 S3Client 保活义务：传输期每个 `0x36` 块后发送 `0x3E`；下载准备轮询期每
-  `UDS_KEEPALIVE_INTERVAL_MS`（1 s）发送一次 `0x3E`。保活失败不中断流程，后续业务请求会
-  以 NRC 暴露会话失效。
+- MCU S3Server 为 5100 ms。完整诊断请求处理完毕，且最终正/负响应发送完成后重启；
+  suppressPositiveResponse 在服务完成后重启。异步 ISO-TP 响应发送期间不计入空闲 S3。
+- 普通 `0x22/0x27/0x31/0x34/0x36/0x37` 请求和不支持 SID 的负响应均维持会话。
+  S3 超时返回默认会话、清除解锁并终止下载事务（包括正在进行的擦除作业）。
+- 连续传输及擦除轮询本身维持会话；`uds_tester_present()` 保留给真实空闲期。
 
 ## ResponsePending
 
@@ -50,10 +47,12 @@ gateway 是 MCU 的 UDS client，不是第二个 UDS server。它不生成 `0x78
 P2/P2*、`0x78`、NRC 长度与事务上限逻辑。
 
 下载的固定顺序是：`0x31 01 FF 00` 启动 EraseMemory 例程（请求不带参数），轮询
-`0x31 03 FF 00` 直到正响应携带 4 字节 BE 结果记录（未完成回 NRC `0x24`；记录
-`0x00000000` 成功 / `0x00000072` 失败），再发送扩展 `0x34`。`0x34` 绑定描述符
-（payload SHA-256 与大小）、校验大小适配目标槽并返回目标槽；它不会擦除 Flash
-或返回 `0x78`。
+`0x31 03 FF 00` 直到正响应携带成功记录 `0x00000000`（结果尚不可用时返回标准
+requestSequenceError `0x24`；Flash 失败返回 NRC `0x72`），再发送标准 `0x34`：
+`34 00 44 00 00 00 00 <size[4]>`，响应严格为 `74 20 01 02`。
+Gateway 从升级前 active slot 推导期望 inactive slot，仅用于复位后验证；MCU 自行决定实际写入槽。
+本 profile 的单 DID RDBI、固定地址、256 字节 TransferData、FF00 erase 和 token/signature
+SecurityAccess 是产品策略，不改变 ISO 请求/响应结构。
 
 相关 host tests 位于 `tests/test_uds_client.c` 和 `tests/test_isotp_channel.c`：它们覆盖 P2* wire
 解码、会话协商时序、首个与重复 `0x78`、8 个 pending 上限、畸形 NRC，以及 ISO-TP Flow

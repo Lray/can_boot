@@ -43,12 +43,11 @@ Required board evidence:
 - `DiagnosticSessionControl 0x03 PASS`
 - `DiagnosticSessionControl 0x02 PASS`
 - `TesterPresent PASS`
-- `ReadDID 0xF180 PASS`
-- `ReadDID 0xF181 PASS`
-- `ReadDID 0xF182 PASS`
-- `ReadDID 0xF1A0 PASS`
-- `ReadDID 0xF1A6 PASS`
-- `ReadDID 0xF1A8 PASS`
+- `ReadDID 0xF1F0 PASS`
+- `ReadDID 0xF1F1 PASS`
+- `ReadDID 0xF1F2 PASS`
+- `ReadDID 0xF1F3 PASS`
+- `ReadDID 0xF1F4 PASS`
 - one `NegativeResponse PASS` line
 - final `Minimal UDS PASS`
 - link remains `ERROR-ACTIVE` with stable error counters

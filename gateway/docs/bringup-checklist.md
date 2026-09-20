@@ -76,7 +76,7 @@ Required evidence:
 - positive `0x10 03` extended diagnostic session response
 - positive `0x10 02` programming session response
 - positive `0x3E 00` TesterPresent response
-- positive `0x22` reads for `0xF180`, `0xF181`, `0xF182`, `0xF1A0`, `0xF1A6`, and `0xF1A8`
+- positive `0x22` reads for `0xF1F0` through `0xF1F4` (and `0xF1F5` for LSS identity)
 - one negative response path, preferably unsupported DID `0xFFFF`
 - `0x78 ResponsePending` is unit-tested as a generic UDS transaction behavior; OTA erase
   progress is validated through the `0x31 FF00` routine result instead
@@ -124,6 +124,6 @@ Required evidence:
 - a malformed or wrongly signed image may pass transport pre-check only if its
   format is valid; after reset MCUboot must reject it and retain the previous slot
 - confirm-missing rollback evidence captures the test-boot version and
-  `F1A8=self-check-failed`, then captures the former slot and version after a
+  `F1F4=self-check-failed`, then captures the former slot and version after a
   second reset
 - link remains `ERROR-ACTIVE` with stable error counters

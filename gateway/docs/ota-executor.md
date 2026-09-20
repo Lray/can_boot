@@ -15,15 +15,15 @@ decision. MCUboot on the MCU owns those final decisions.
 
 `ota_executor` then owns, in one sequence: stable MCU observation; extended
 and programming session entry; SecurityAccess authorization for entering OTA;
-the EraseMemory routine; extended `0x34` identity binding; `0x36/0x37` transfer; hard
+the EraseMemory routine; standard `0x34` download request; `0x36/0x37` transfer; hard
 reset; reconnect; and post-reset classification.
 
 `transfer` is an internal transfer helper, not another OTA entry. It
 assumes a loaded package and an already-open, authorized OTA session. It
 starts the `0x31 FF00` EraseMemory routine and polls its results, then sends
-`0x34` carrying the manifest's complete-image `image_sha256`, validates the
-returned target slot, and executes the
-full transfer. It does not enter a session or recompute the payload hash.
+`0x34` carrying only the standard address and size fields, and executes the
+full transfer. The expected target slot for post-reset verification is derived
+from the pre-update active slot; the MCU selects its inactive slot for writing.
 
 `download` is likewise a transfer helper: it owns target selection, byte count,
 block sequence, and terminal state for `0x31/0x34/0x36/0x37`. The typed UDS

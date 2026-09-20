@@ -167,10 +167,10 @@ cd /opt/can-ota-gateway
 | MCU heartbeat | `0x700`，DLC=`1`，`DATA[0]=0x05`（Alive），周期 `1000 ms` |
 | MCU offline 判定 | Gateway 接收端距最后一次有效 heartbeat 超过 `3000 ms`；不使用收发或错误计数 |
 | ISO-TP | `BS=8`，`STmin=2 ms` |
-| UDS timing | 初始默认 `P2=50 ms`、`P2*=5000 ms`；每次 `0x10` 后以 MCU 公布的参数为准（P2* wire unit=10 ms），TesterPresent=1000 ms |
+| UDS timing | 初始默认 `P2=50 ms`、`P2*=5000 ms`；每次 `0x10` 后以 MCU 公布的参数为准（P2* wire unit=10 ms），诊断通信完成后重启 S3 |
 | TransferData payload | 256 bytes |
 | maxNumberOfBlockLength | 258 |
-| RequestDownload extension | `payload_id`, target slot |
+| RequestDownload | 标准 `34 00 44 <address[4]> <size[4]>` / `74 20 01 02`；MCU 自动选择 inactive slot |
 
 共享常量以 `src/profile.h` 为准；README 与代码冲突时必须先修正文档和
 契约，再修改生产实现。

@@ -30,18 +30,18 @@
   只抑制正响应，负响应仍正常返回。
 - `0x10` 正响应公布 `P2ServerMax=50 ms` 和 `P2*ServerMax=5000 ms`；后者按
   ISO 14229 的 10 ms wire unit 编码为 `0x01F4`。
-- `0x34 RequestDownload` 是产品扩展：标准 address/size 字段后追加完整 payload
-  SHA-256；正响应在最大块长后追加 MCU 选定的 `target_slot`。地址必须为零，
-  目标槽始终由 MCU 的 inactive slot 推导。
+- `0x34 RequestDownload` 使用标准 wire 格式：`34 00 44 00 00 00 00 <size[4]>`
+  （11 字节），正响应严格为 `74 20 01 02`（4 字节，最大块长 258）。
+  地址固定为零，目标槽始终由 MCU 的 inactive slot 推导，不在 UDS 响应上传输。
 - `0x31 StartRoutine FF00`（ISO 14229 routineIdentifier EraseMemory）擦除
   inactive slot：请求不携带参数，MCU 选择 inactive slot 并启动独立的擦除作业；
   `0x31 RequestRoutineResults FF00` 在未完成时返回 NRC `0x24`，完成后返回
-  4 字节 BE 结果记录（`0x00000000` 成功 / `0x00000072` 失败）。作业已激活时
+  4 字节 BE 结果记录（`0x00000000` 成功）；Flash 失败返回 NRC `0x72`。作业已激活时
   重复启动返回 NRC `0x24`。擦除每轮最多处理一个 8 KiB Flash page，由 OTA 组合根
   轮询。
-- `0x34 RequestDownload` 绑定下载描述符（payload SHA-256 与大小）并校验大小
+- `0x34 RequestDownload` 校验 image size
   适配目标槽，然后立即返回 `0x74`；它不擦除 Flash，也不发送 `0x78`。
-- `DID_CONFIRM_RESULT (0xF1A8)` 仅报告当前启动的自检与 MCUboot `image_ok`
+- `DID_CONFIRM_RESULT (0xF1F4)` 仅报告当前启动的自检与 MCUboot `image_ok`
   写入结果；它不是持久化激活状态。
 - `DID_APP_VERSION` 使用 8 字节完整 MCUboot 版本：`major, minor, revision
   (BE16), build (BE32)`。
@@ -66,3 +66,18 @@ ISO-TP 主机测试直接调用上游 API，覆盖无填充 Single Frame、多�
 UDS/下载测试覆盖正响应抑制、P2* wire 编码、下载准备作业的 `pending`、`ready`
 以及 `0x34` 仅在 ready 后接受。固定寻址及 Classic CAN 限制由
 `can_network.h`、`301/CO_driver.h` 和本文件共同定义。
+
+## ISO wire 与产品策略
+
+`0x34/0x74` 保持 ISO 14229 结构。产品策略为 DFI=`00`、ALFI=`44`、
+memoryAddress=`0`、单块数据 256 字节、MCU 自动写入 inactive slot、
+`0x31 FF00` 擦除该槽，以及项目 token/signature SecurityAccess。
+`0x22` 当前每次只支持一个 DID（`maxNumberOfDIDsPerRDBIRequest=1`）；未知 DID
+返回 `7F 22 31`。项目识别 DID 为 `F1F0`~`F1F5`，分别表示 boot version、
+app version、updater version、active slot、confirm result 和 LSS identity；
+`F180`~`F182` 不承载这些项目数据。
+
+S3Server 在完整诊断请求的最终响应发送完成后重启；抑制正响应时在服务完成后重启。
+普通 `0x22/0x27/0x31/0x34/0x36/0x37` 与不支持的 SID 的负响应也维持会话。
+S3 超时返回默认会话、锁定 SecurityAccess 并终止当前下载事务；已写入 Flash 的字节不回滚。
+重复上一 BSC 且 Flash 内容相同的 `0x36` 返回相同的 `76 <BSC>`，不再次写入。

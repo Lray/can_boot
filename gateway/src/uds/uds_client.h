@@ -6,7 +6,6 @@
 #include <stdint.h>
 
 #include "profile.h"
-#include "shared/payload_id_format.h"
 #include "shared/uds_protocol.h"
 #include "transport.h"
 
@@ -41,7 +40,6 @@ typedef int (*UdsReconnectFn_t)(void *ctx, UdsClient *client);
 
 typedef struct
 {
-    uint8_t target_slot;
     uint16_t max_block_len;
 } UdsDownloadResponse;
 
@@ -79,8 +77,8 @@ int uds_erase_memory(UdsClient *client);
  * Poll the EraseMemory routine results.
  *
  * While erasing, the MCU answers NRC 0x24 (rc = UDS_ERR_NEGATIVE_RESPONSE).
- * On completion, complete_out is true for the 0x00000000 record; the failure
- * record 0x00000072 maps to UDS_ERR_NEGATIVE_RESPONSE with last_nrc = 0x72.
+ * On completion, complete_out is true for the 0x00000000 record. A flash
+ * failure is reported as NRC 0x72.
  */
 int uds_erase_memory_results(UdsClient *client, bool *complete_out);
 /**
@@ -96,17 +94,14 @@ int uds_erase_memory_results(UdsClient *client, bool *complete_out);
 int uds_read_did(UdsClient *client, uint16_t did, uint8_t *data_out, size_t data_cap,
                          size_t *data_len_out);
 /**
- * Open a prepared MCU download through the product 0x34 extension.
+ * Open a prepared MCU download using ISO 14229 RequestDownload.
  *
  * @param client Ready UDS client.
- * @param payload_id SHA-256 of the complete image byte stream.
  * @param image_size Complete image size in bytes.
- * @param response_out Receives the selected target slot and maximum
- *                     TransferData block length.
+ * @param response_out Receives the maximum TransferData block length.
  * @return 0 on success or a UDS_ERR_* value on failure.
  */
 int uds_request_download(UdsClient *client,
-                         const uint8_t payload_id[PAYLOAD_ID_SIZE],
                          uint32_t image_size,
                          UdsDownloadResponse *response_out);
 /**

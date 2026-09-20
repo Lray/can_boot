@@ -28,6 +28,16 @@ static OtaState_t classify_post_reset(const OtaPackage_t *package,
     return OTA_STATE_POST_RESET_CHECKED;
 }
 
+static bool expected_inactive_slot(uint8_t active_slot, uint8_t *slot_out)
+{
+    if (active_slot != OTA_SLOT_A && active_slot != OTA_SLOT_B)
+    {
+        return false;
+    }
+    *slot_out = active_slot == OTA_SLOT_A ? OTA_SLOT_B : OTA_SLOT_A;
+    return true;
+}
+
 OtaState_t ota_executor_run(const OtaExecutorConfig_t *config,
                             const OtaPackage_t *package,
                             OtaExecutorResult_t *result_out)
@@ -65,17 +75,16 @@ OtaState_t ota_executor_run(const OtaExecutorConfig_t *config,
     {
         return OTA_STATE_PACKAGE_VALIDATED;
     }
+    if (!expected_inactive_slot(result_out->before.active_slot, &target_slot))
+    {
+        return OTA_STATE_PACKAGE_VALIDATED;
+    }
     /* 0x10 03: DiagnosticSessionControl -> Extended Session. */
     rc = uds_enter_session(config->client, SESSION_EXTENDED);
     if (rc == 0)
     {
         /* 0x10 02: DiagnosticSessionControl -> Programming Session. */
         rc = uds_enter_session(config->client, SESSION_PROGRAMMING);
-    }
-    if (rc == 0)
-    {
-        /* 0x3E 00: TesterPresent with zero sub-function. */
-        rc = uds_tester_present(config->client);
     }
     if (rc != 0)
     {
@@ -91,9 +100,7 @@ OtaState_t ota_executor_run(const OtaExecutorConfig_t *config,
         return OTA_STATE_SESSION_OPEN;
     }
 
-    rc = transfer_execute(config->client, package->image_sha256,
-                                 package->image_size, package->image,
-                                 &target_slot);
+    rc = transfer_execute(config->client, package->image_size, package->image);
     if (rc != 0)
     {
         return OTA_STATE_AUTHORIZED;

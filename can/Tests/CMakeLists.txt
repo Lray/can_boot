@@ -111,6 +111,35 @@ target_include_directories(download_host_test PRIVATE
 )
 configure_host_test(download_host_test)
 
+add_executable(uds_server_host_test
+    uds_server_host_test.c
+    ${UDS_DIR}/uds_server.c
+    ${UDS_DIR}/uds_msg.c
+)
+target_include_directories(uds_server_host_test BEFORE PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/fakes
+)
+target_include_directories(uds_server_host_test PRIVATE
+    ${TEST_MODULE_INC_DIRS}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../boot
+    ${CMAKE_CURRENT_SOURCE_DIR}/../download
+    ${CMAKE_CURRENT_SOURCE_DIR}/../security
+    ${TRANSPORT_DIR}
+)
+configure_host_test(uds_server_host_test)
+
+add_executable(uds_read_did_host_test
+    uds_read_did_host_test.c
+    ${UDS_DIR}/uds_read_did.c
+    ${UDS_DIR}/uds_msg.c
+)
+target_include_directories(uds_read_did_host_test PRIVATE
+    ${TEST_MODULE_INC_DIRS}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../boot
+    ${IDENTITY_DIR}
+)
+configure_host_test(uds_read_did_host_test)
+
 # ---- factory identity host test ----
 add_executable(factory_identity_host_test
     factory_identity_host_test.c

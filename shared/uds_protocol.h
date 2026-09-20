@@ -2,7 +2,6 @@
 #define UDS_PROTOCOL_H
 
 #include "security_access_level.h"
-#include "payload_id_format.h"
 
 /*
  * Shared UDS wire contract between the MCU firmware (can/) and the Linux
@@ -64,8 +63,7 @@
 #define DOWNLOAD_ADDR_LEN_FORMAT_ID 0x44U
 #define DOWNLOAD_MAX_BLOCK_LEN_FORMAT_ID 0x20U
 #define DOWNLOAD_MEMORY_ADDRESS 0U
-#define UDS_REQUEST_DOWNLOAD_REQUEST_LEN (11U + PAYLOAD_ID_SIZE)
-#define UDS_REQUEST_DOWNLOAD_PAYLOAD_ID_OFFSET 11U
+#define UDS_REQUEST_DOWNLOAD_REQUEST_LEN 11U
 
 /* --- Erase memory routine (ISO 14229 routineIdentifier 0xFF00) --- */
 #define ROUTINE_CONTROL_START 0x01U
@@ -73,15 +71,13 @@
 #define ROUTINE_ID_ERASE_MEMORY 0xFF00U
 /* 4-byte BE status record of the positive results response (ARDEP-aligned). */
 #define ROUTINE_ERASE_RESULT_OK 0x00000000U
-#define ROUTINE_ERASE_RESULT_FAILURE ((uint32_t)NRC_GENERAL_PROGRAMMING_FAILURE)
 #define UDS_ROUTINE_CONTROL_REQUEST_LEN 4U
 /* Positive results response: 71 03 FF 00 + 4-byte BE status record. */
 #define UDS_ERASE_MEMORY_RESULT_LEN 8U
 
 /* Complete positive response offsets include the 0x74 SID. */
-#define UDS_REQUEST_DOWNLOAD_RESPONSE_LEN 5U
+#define UDS_REQUEST_DOWNLOAD_RESPONSE_LEN 4U
 #define UDS_REQUEST_DOWNLOAD_RESPONSE_MAX_BLOCK_OFFSET 2U
-#define UDS_REQUEST_DOWNLOAD_RESPONSE_TARGET_SLOT_OFFSET 4U
 
 /* --- Negative response codes --- */
 #define NRC_GENERAL_REJECT 0x10U
@@ -100,13 +96,15 @@
 #define NRC_GENERAL_PROGRAMMING_FAILURE 0x72U
 #define NRC_WRONG_BLOCK_SEQUENCE_COUNTER 0x73U
 #define NRC_RESPONSE_PENDING 0x78U
+#define NRC_SUBFUNCTION_NOT_SUPPORTED_IN_ACTIVE_SESSION 0x7EU
+#define NRC_SERVICE_NOT_SUPPORTED_IN_ACTIVE_SESSION 0x7FU
 
 /* --- Data identifiers --- */
-#define DID_BOOT_VERSION 0xF180U
-#define DID_APP_VERSION 0xF181U
-#define DID_UPDATER_VERSION 0xF182U
-#define DID_ACTIVE_SLOT 0xF1A0U
-#define DID_CONFIRM_RESULT 0xF1A8U
-#define DID_LSS_IDENTITY 0xF1A9U
+#define DID_BOOT_VERSION 0xF1F0U
+#define DID_APP_VERSION 0xF1F1U
+#define DID_UPDATER_VERSION 0xF1F2U
+#define DID_ACTIVE_SLOT 0xF1F3U
+#define DID_CONFIRM_RESULT 0xF1F4U
+#define DID_LSS_IDENTITY 0xF1F5U
 
 #endif /* UDS_PROTOCOL_H */
