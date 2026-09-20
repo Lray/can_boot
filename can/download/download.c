@@ -199,10 +199,14 @@ download_result_t Download_Transfer(uint8_t block_sequence_counter,
 
     if (block_sequence_counter == s_download.next_block_sequence_counter)
     {
+        if (s_download.received == s_download.image_size)
+        {
+            return DOWNLOAD_RESULT_SEQUENCE_ERROR;
+        }
         remaining = s_download.image_size - s_download.received;
         if (length > remaining)
         {
-            return DOWNLOAD_RESULT_OUT_OF_RANGE;
+            return DOWNLOAD_RESULT_TRANSFER_SUSPENDED;
         }
     }
     else if (length != s_download.previous_block_length)
@@ -247,7 +251,7 @@ download_result_t Download_Exit(void)
 {
     if (s_download.state != DOWNLOAD_STATE_TRANSFERRING)
     {
-        return DOWNLOAD_RESULT_REJECTED;
+        return DOWNLOAD_RESULT_SEQUENCE_ERROR;
     }
     if (s_download.received != s_download.image_size)
     {

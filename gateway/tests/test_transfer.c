@@ -308,7 +308,7 @@ static void test_uds_transfer_wrong_block_sequence_nrc(void)
     expect_transfer(&fake, 0, 0x02U, block, sizeof(block));
     fake.responses[0][0] = NEGATIVE_RESPONSE_SID;
     fake.responses[0][1] = SID_TRANSFER_DATA;
-    fake.responses[0][2] = NRC_REQUEST_SEQUENCE_ERROR;
+    fake.responses[0][2] = NRC_WRONG_BLOCK_SEQUENCE_COUNTER;
     fake.response_len[0] = 3U;
 
     assert(uds_transfer_data(&client,
@@ -316,7 +316,7 @@ static void test_uds_transfer_wrong_block_sequence_nrc(void)
                              block,
                              sizeof(block)) ==
            UDS_ERR_NEGATIVE_RESPONSE);
-    assert(client.last_nrc == NRC_REQUEST_SEQUENCE_ERROR);
+    assert(client.last_nrc == NRC_WRONG_BLOCK_SEQUENCE_COUNTER);
 }
 
 static void test_execute_fresh_transfer(void)

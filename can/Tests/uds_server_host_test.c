@@ -16,6 +16,8 @@ static bool s_async_send;
 static bool s_unlocked;
 static unsigned int s_abort_count;
 static download_preparation_status_t s_preparation_status;
+static download_result_t s_transfer_result;
+static download_result_t s_exit_result;
 
 static bool send_response(const uint8_t *data, uint16_t length)
 {
@@ -72,6 +74,8 @@ void Download_Init(void)
 {
     s_abort_count = 0U;
     s_preparation_status = DOWNLOAD_PREPARATION_READY;
+    s_transfer_result = DOWNLOAD_RESULT_OK;
+    s_exit_result = DOWNLOAD_RESULT_OK;
 }
 void Download_Abort(void) { s_abort_count++; }
 download_result_t Download_Prepare(void) { return DOWNLOAD_RESULT_OK; }
@@ -89,9 +93,10 @@ download_result_t Download_Transfer(uint8_t bsc, const uint8_t *payload,
 {
     (void)bsc;
     (void)payload;
-    return length == 0U ? DOWNLOAD_RESULT_INCORRECT_LENGTH : DOWNLOAD_RESULT_OK;
+    return (length == 0U || length > DOWNLOAD_MAX_TRANSFER_PAYLOAD)
+               ? DOWNLOAD_RESULT_INCORRECT_LENGTH : s_transfer_result;
 }
-download_result_t Download_Exit(void) { return DOWNLOAD_RESULT_OK; }
+download_result_t Download_Exit(void) { return s_exit_result; }
 
 uds_read_did_result_t UDS_ReadDid_Build(uint16_t did,
                                         uds_read_did_response_t *response)
@@ -199,9 +204,56 @@ static void test_async_and_suppressed_responses(void)
     assert(s_abort_count == 1U);
 }
 
+static void test_download_sequence_nrcs(void)
+{
+    static const uint8_t session[] = {0x10U, 0x02U};
+    static const uint8_t seed[] = {0x27U, 0x01U};
+    static const uint8_t key[] = {0x27U, 0x02U, 0x55U};
+    static const uint8_t erase[] = {0x31U, 0x01U, 0xFFU, 0x00U};
+    static const uint8_t download[] = {0x34U, 0x00U, 0x44U, 0, 0, 0, 0, 0, 0, 1, 0};
+    static const uint8_t transfer[] = {0x36U, 0x01U, 0x42U};
+    static const uint8_t exit_request[] = {0x37U};
+    uint8_t oversized[2U + DOWNLOAD_MAX_TRANSFER_PAYLOAD + 1U] = {0};
+
+    UDS_Init(&(uds_transport_t){send_response, response_pending});
+    dispatch_at(0U, session, sizeof(session));
+    dispatch_at(1U, seed, sizeof(seed));
+    dispatch_at(2U, key, sizeof(key));
+    s_exit_result = DOWNLOAD_RESULT_SEQUENCE_ERROR;
+    dispatch_at(3U, exit_request, sizeof(exit_request));
+    assert(memcmp(s_response, (uint8_t[]){0x7FU, 0x37U, 0x24U}, 3U) == 0);
+    dispatch_at(4U, erase, sizeof(erase));
+    dispatch_at(5U, download, sizeof(download));
+
+    s_transfer_result = DOWNLOAD_RESULT_TRANSFER_SUSPENDED;
+    dispatch_at(6U, transfer, sizeof(transfer));
+    assert(memcmp(s_response, (uint8_t[]){0x7FU, 0x36U, 0x71U}, 3U) == 0);
+    s_transfer_result = DOWNLOAD_RESULT_SEQUENCE_ERROR;
+    dispatch_at(7U, transfer, sizeof(transfer));
+    assert(memcmp(s_response, (uint8_t[]){0x7FU, 0x36U, 0x24U}, 3U) == 0);
+    s_transfer_result = DOWNLOAD_RESULT_WRONG_BLOCK_SEQUENCE;
+    dispatch_at(8U, transfer, sizeof(transfer));
+    assert(memcmp(s_response, (uint8_t[]){0x7FU, 0x36U, 0x73U}, 3U) == 0);
+
+    oversized[0] = SID_TRANSFER_DATA;
+    oversized[1] = 0x01U;
+    dispatch_at(9U, oversized, sizeof(oversized));
+    assert(memcmp(s_response, (uint8_t[]){0x7FU, 0x36U, 0x13U}, 3U) == 0);
+    s_transfer_result = DOWNLOAD_RESULT_OK;
+    dispatch_at(10U, transfer, sizeof(transfer));
+    assert(memcmp(s_response, (uint8_t[]){0x76U, 0x01U}, 2U) == 0);
+
+    dispatch_at(11U, exit_request, sizeof(exit_request));
+    assert(memcmp(s_response, (uint8_t[]){0x7FU, 0x37U, 0x24U}, 3U) == 0);
+    s_exit_result = DOWNLOAD_RESULT_OK;
+    dispatch_at(12U, exit_request, sizeof(exit_request));
+    assert(s_response_length == 1U && s_response[0] == 0x77U);
+}
+
 int main(void)
 {
     test_normal_requests_restart_s3();
     test_async_and_suppressed_responses();
+    test_download_sequence_nrcs();
     return 0;
 }

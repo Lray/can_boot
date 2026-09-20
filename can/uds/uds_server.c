@@ -133,6 +133,9 @@ static uint8_t UDS_DownloadResultToNrc(download_result_t result)
     case DOWNLOAD_RESULT_OUT_OF_RANGE:
       return NRC_REQUEST_OUT_OF_RANGE;
 
+    case DOWNLOAD_RESULT_TRANSFER_SUSPENDED:
+      return NRC_TRANSFER_DATA_SUSPENDED;
+
     case DOWNLOAD_RESULT_SEQUENCE_ERROR:
       return NRC_REQUEST_SEQUENCE_ERROR;
 

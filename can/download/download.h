@@ -12,6 +12,7 @@ typedef enum
     DOWNLOAD_RESULT_OK = 0,
     DOWNLOAD_RESULT_INCORRECT_LENGTH,
     DOWNLOAD_RESULT_OUT_OF_RANGE,
+    DOWNLOAD_RESULT_TRANSFER_SUSPENDED,
     DOWNLOAD_RESULT_SEQUENCE_ERROR,
     DOWNLOAD_RESULT_WRONG_BLOCK_SEQUENCE,
     DOWNLOAD_RESULT_REJECTED,
@@ -61,8 +62,8 @@ download_result_t Download_Transfer(uint8_t block_sequence_counter,
 /**
  * Finish a complete transfer.
  *
- * @return OK when the whole image was received, or REJECTED when no transfer
- *         is active (ISO 14229-1 0x37 -> NRC 0x70).
+ * @return OK when the whole image was received, or SEQUENCE_ERROR when no
+ *         transfer is active (ISO 14229-1 0x37 -> NRC 0x24).
  */
 download_result_t Download_Exit(void);
 
