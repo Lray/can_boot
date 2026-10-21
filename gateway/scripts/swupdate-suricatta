@@ -59,5 +59,15 @@ require_decimal SWUPDATE_RETRY_WAIT "$SWUPDATE_RETRY_WAIT"
 [ -f "$SWUPDATE_TRUST_KEY" ] && [ ! -L "$SWUPDATE_TRUST_KEY" ] ||
     fail 'SWUpdate trust key is unavailable or unsafe'
 
+if ! ustate=$(/usr/sbin/fw_printenv -n ustate 2>/dev/null); then
+    /usr/sbin/fw_printenv >/dev/null 2>&1 || fail 'cannot read U-Boot environment'
+    ustate=''
+fi
+case "$ustate" in
+    1) confirm='-c 2' ;;
+    ''|0|2|3) confirm='' ;;
+    *) fail 'invalid SWUpdate state' ;;
+esac
 exec /sbin/swupdate -L -l "$SWUPDATE_LOG_LEVEL" -k "$SWUPDATE_TRUST_KEY" \
-    -u "-t $HAWKBIT_TENANT -u $hawkbit_endpoint -i $HAWKBIT_TARGET_ID -k $HAWKBIT_TARGET_TOKEN -p $SWUPDATE_POLL_DELAY -r $SWUPDATE_RETRIES -w $SWUPDATE_RETRY_WAIT"
+    -p /usr/libexec/mcu-update/swupdate-restart \
+    -u "-t $HAWKBIT_TENANT -u $hawkbit_endpoint -i $HAWKBIT_TARGET_ID -k $HAWKBIT_TARGET_TOKEN -p $SWUPDATE_POLL_DELAY -r $SWUPDATE_RETRIES -w $SWUPDATE_RETRY_WAIT $confirm"

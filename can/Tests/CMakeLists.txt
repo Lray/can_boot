@@ -148,6 +148,7 @@ add_executable(factory_identity_host_test
 target_include_directories(factory_identity_host_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../boot
     ${IDENTITY_DIR}
+    ${REPO_INC_DIR}
 )
 configure_host_test(factory_identity_host_test)
 

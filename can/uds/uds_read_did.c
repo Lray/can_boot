@@ -83,7 +83,7 @@ static uds_read_did_result_t UDS_ReadDid_BuildStandardResponse(
             response->length = 4U;
             return UDS_READ_DID_RESULT_OK;
 
-        case DID_LSS_IDENTITY:
+        case DID_FACTORY_IDENTITY:
             if (!FactoryIdentity_Read(&identity))
             {
                 return UDS_READ_DID_RESULT_BUILD_FAILED;

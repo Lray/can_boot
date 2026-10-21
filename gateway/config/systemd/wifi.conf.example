@@ -1,2 +1,0 @@
-# Install as /etc/mcu-update/wifi.conf with owner root and mode 0640.
-MCU_WIFI_IFNAME=wlan0

@@ -4,6 +4,9 @@ Status: `RAW CAN 双端通信通过`
 
 Date: 2026-06-23
 
+This is pre-LSS historical evidence for the original single-node fixture. Its
+fixed CAN IDs are not the current product addressing contract.
+
 Observed interface:
 
 - Linux CAN network interface: `awlink0`

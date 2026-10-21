@@ -129,16 +129,16 @@ static void test_session_response_negotiates_timing(void)
     assert(client.p2_star_server_max_ms == 1000u);
 
     fake.expected_send[0] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.expected_send[1] = 0xF1u;
-    fake.expected_send[2] = 0x81u;
+    fake.expected_send[1] = (uint8_t)(DID_APP_VERSION >> 8);
+    fake.expected_send[2] = (uint8_t)DID_APP_VERSION;
     fake.expected_send_len = 3u;
     fake.responses[1][0] = NEGATIVE_RESPONSE_SID;
     fake.responses[1][1] = SID_READ_DATA_BY_IDENTIFIER;
     fake.responses[1][2] = NRC_RESPONSE_PENDING;
     fake.response_lens[1] = UDS_NEGATIVE_RESPONSE_LENGTH;
     fake.responses[2][0] = SID_READ_DATA_BY_IDENTIFIER_POS;
-    fake.responses[2][1] = 0xF1u;
-    fake.responses[2][2] = 0x81u;
+    fake.responses[2][1] = (uint8_t)(DID_APP_VERSION >> 8);
+    fake.responses[2][2] = (uint8_t)DID_APP_VERSION;
     fake.responses[2][3] = 0x56u;
     fake.response_lens[2] = 4u;
 
@@ -260,12 +260,12 @@ static void test_read_did_copies_payload(void)
     size_t data_len = 0;
 
     fake.expected_send[0] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.expected_send[1] = 0xF1;
-    fake.expected_send[2] = 0x80;
+    fake.expected_send[1] = (uint8_t)(DID_BOOT_VERSION >> 8);
+    fake.expected_send[2] = (uint8_t)DID_BOOT_VERSION;
     fake.expected_send_len = 3;
     fake.responses[0][0] = SID_READ_DATA_BY_IDENTIFIER_POS;
-    fake.responses[0][1] = 0xF1;
-    fake.responses[0][2] = 0x80;
+    fake.responses[0][1] = (uint8_t)(DID_BOOT_VERSION >> 8);
+    fake.responses[0][2] = (uint8_t)DID_BOOT_VERSION;
     fake.responses[0][3] = 0x12;
     fake.responses[0][4] = 0x34;
     fake.response_lens[0] = 5;
@@ -304,8 +304,8 @@ static void test_busy_repeat_request_is_reported(void)
     size_t data_len = 0u;
 
     fake.expected_send[0] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.expected_send[1] = 0xF1u;
-    fake.expected_send[2] = 0x81u;
+    fake.expected_send[1] = (uint8_t)(DID_APP_VERSION >> 8);
+    fake.expected_send[2] = (uint8_t)DID_APP_VERSION;
     fake.expected_send_len = 3u;
     fake.responses[0][0] = NEGATIVE_RESPONSE_SID;
     fake.responses[0][1] = SID_READ_DATA_BY_IDENTIFIER;
@@ -325,8 +325,8 @@ static void test_malformed_negative_response_is_rejected(void)
     size_t data_len = 0u;
 
     fake.expected_send[0] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.expected_send[1] = 0xF1u;
-    fake.expected_send[2] = 0x81u;
+    fake.expected_send[1] = (uint8_t)(DID_APP_VERSION >> 8);
+    fake.expected_send[2] = (uint8_t)DID_APP_VERSION;
     fake.expected_send_len = 3u;
     fake.responses[0][0] = NEGATIVE_RESPONSE_SID;
     fake.responses[0][1] = SID_READ_DATA_BY_IDENTIFIER;
@@ -345,16 +345,16 @@ static void test_response_pending_switches_to_p2_star(void)
     size_t data_len = 0;
 
     fake.expected_send[0] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.expected_send[1] = 0xF1;
-    fake.expected_send[2] = 0x81;
+    fake.expected_send[1] = (uint8_t)(DID_APP_VERSION >> 8);
+    fake.expected_send[2] = (uint8_t)DID_APP_VERSION;
     fake.expected_send_len = 3;
     fake.responses[0][0] = NEGATIVE_RESPONSE_SID;
     fake.responses[0][1] = SID_READ_DATA_BY_IDENTIFIER;
     fake.responses[0][2] = NRC_RESPONSE_PENDING;
     fake.response_lens[0] = 3;
     fake.responses[1][0] = SID_READ_DATA_BY_IDENTIFIER_POS;
-    fake.responses[1][1] = 0xF1;
-    fake.responses[1][2] = 0x81;
+    fake.responses[1][1] = (uint8_t)(DID_APP_VERSION >> 8);
+    fake.responses[1][2] = (uint8_t)DID_APP_VERSION;
     fake.responses[1][3] = 0x56;
     fake.response_lens[1] = 4;
 
@@ -375,8 +375,8 @@ static void test_response_pending_then_timeout_has_no_terminal_nrc(void)
     uint8_t data[8] = {0};
     size_t data_len = 0u;
     fake.expected_send[0] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.expected_send[1] = 0xF1u;
-    fake.expected_send[2] = 0x81u;
+    fake.expected_send[1] = (uint8_t)(DID_APP_VERSION >> 8);
+    fake.expected_send[2] = (uint8_t)DID_APP_VERSION;
     fake.expected_send_len = 3u;
     fake.responses[0][0] = NEGATIVE_RESPONSE_SID;
     fake.responses[0][1] = SID_READ_DATA_BY_IDENTIFIER;
@@ -403,8 +403,8 @@ static void test_response_pending_limit_accepts_mcu_budget(void)
     uint8_t index;
 
     fake.expected_send[0] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.expected_send[1] = 0xF1u;
-    fake.expected_send[2] = 0x81u;
+    fake.expected_send[1] = (uint8_t)(DID_APP_VERSION >> 8);
+    fake.expected_send[2] = (uint8_t)DID_APP_VERSION;
     fake.expected_send_len = 3u;
     for (index = 0u; index < UDS_RESPONSE_PENDING_MAX_COUNT; ++index)
     {
@@ -414,8 +414,10 @@ static void test_response_pending_limit_accepts_mcu_budget(void)
         fake.response_lens[index] = UDS_NEGATIVE_RESPONSE_LENGTH;
     }
     fake.responses[UDS_RESPONSE_PENDING_MAX_COUNT][0] = SID_READ_DATA_BY_IDENTIFIER_POS;
-    fake.responses[UDS_RESPONSE_PENDING_MAX_COUNT][1] = 0xF1u;
-    fake.responses[UDS_RESPONSE_PENDING_MAX_COUNT][2] = 0x81u;
+    fake.responses[UDS_RESPONSE_PENDING_MAX_COUNT][1] =
+        (uint8_t)(DID_APP_VERSION >> 8);
+    fake.responses[UDS_RESPONSE_PENDING_MAX_COUNT][2] =
+        (uint8_t)DID_APP_VERSION;
     fake.responses[UDS_RESPONSE_PENDING_MAX_COUNT][3] = 0x01u;
     fake.response_lens[UDS_RESPONSE_PENDING_MAX_COUNT] = 4u;
 
@@ -437,8 +439,8 @@ static void test_response_pending_limit_rejects_extra_pending(void)
     uint8_t index;
 
     fake.expected_send[0] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.expected_send[1] = 0xF1u;
-    fake.expected_send[2] = 0x81u;
+    fake.expected_send[1] = (uint8_t)(DID_APP_VERSION >> 8);
+    fake.expected_send[2] = (uint8_t)DID_APP_VERSION;
     fake.expected_send_len = 3u;
     for (index = 0u; index <= UDS_RESPONSE_PENDING_MAX_COUNT; ++index)
     {
@@ -462,12 +464,12 @@ static void test_read_did_handles_large_response(void)
     size_t i = 0u;
 
     fake.expected_send[0] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.expected_send[1] = 0xF1u;
-    fake.expected_send[2] = 0x81u;
+    fake.expected_send[1] = (uint8_t)(DID_APP_VERSION >> 8);
+    fake.expected_send[2] = (uint8_t)DID_APP_VERSION;
     fake.expected_send_len = 3u;
     fake.responses[0][0] = SID_READ_DATA_BY_IDENTIFIER_POS;
-    fake.responses[0][1] = 0xF1u;
-    fake.responses[0][2] = 0x81u;
+    fake.responses[0][1] = (uint8_t)(DID_APP_VERSION >> 8);
+    fake.responses[0][2] = (uint8_t)DID_APP_VERSION;
     for (i = 3u; i < 500u; ++i)
     {
         fake.responses[0][i] = (uint8_t)i;
@@ -487,12 +489,12 @@ static void test_read_did_reports_transport_truncation(void)
     size_t data_len = 0u;
     size_t i = 0u;
     fake.expected_send[0] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.expected_send[1] = 0xF1u;
-    fake.expected_send[2] = 0x81u;
+    fake.expected_send[1] = (uint8_t)(DID_APP_VERSION >> 8);
+    fake.expected_send[2] = (uint8_t)DID_APP_VERSION;
     fake.expected_send_len = 3u;
     fake.responses[0][0] = SID_READ_DATA_BY_IDENTIFIER_POS;
-    fake.responses[0][1] = 0xF1u;
-    fake.responses[0][2] = 0x81u;
+    fake.responses[0][1] = (uint8_t)(DID_APP_VERSION >> 8);
+    fake.responses[0][2] = (uint8_t)DID_APP_VERSION;
     for (i = 3u; i < 600u; ++i)
     {
         fake.responses[0][i] = (uint8_t)i;
@@ -511,12 +513,12 @@ static void test_read_did_rejects_mismatched_did(void)
     uint8_t data[8] = {0};
     size_t data_len = 0u;
     fake.expected_send[0] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.expected_send[1] = 0xF1u;
-    fake.expected_send[2] = 0x81u;
+    fake.expected_send[1] = (uint8_t)(DID_APP_VERSION >> 8);
+    fake.expected_send[2] = (uint8_t)DID_APP_VERSION;
     fake.expected_send_len = 3u;
     fake.responses[0][0] = SID_READ_DATA_BY_IDENTIFIER_POS;
-    fake.responses[0][1] = 0xF1u;
-    fake.responses[0][2] = 0x82u;
+    fake.responses[0][1] = (uint8_t)(DID_APP_VERSION >> 8);
+    fake.responses[0][2] = (uint8_t)DID_APP_VERSION ^ 1u;
     fake.responses[0][3] = 0x01u;
     fake.response_lens[0] = 4u;
 

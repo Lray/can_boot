@@ -1,9 +1,0 @@
-# Install as /etc/mcu-update/signer.conf with owner root and mode 0640.
-# The daemon starts as root only long enough to connect to OP-TEE, create the
-# socket safely, then drops to MCU_TOKEN_SIGNER_UID/GID itself.
-MCU_TOKEN_SIGNER_ENDPOINT=/run/mcu-token-signer/v1.sock
-MCU_TOKEN_SIGNER_UID=200
-MCU_TOKEN_SIGNER_GID=200
-MCU_TOKEN_SIGNER_SOCKET_GID=201
-MCU_TOKEN_SIGNER_CLIENT_UID=0
-MCU_TOKEN_SIGNER_CLIENT_GID=0

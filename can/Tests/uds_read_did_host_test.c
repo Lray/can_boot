@@ -28,7 +28,7 @@ int main(void)
 {
     static const uint16_t project_dids[] = {
         DID_BOOT_VERSION, DID_APP_VERSION, DID_UPDATER_VERSION,
-        DID_ACTIVE_SLOT, DID_CONFIRM_RESULT, DID_LSS_IDENTITY,
+        DID_ACTIVE_SLOT, DID_CONFIRM_RESULT, DID_FACTORY_IDENTITY,
     };
     uint8_t data[UDS_READ_DID_RESPONSE_MAX_SIZE] = {0};
     uds_read_did_response_t response = {data, sizeof(data), 0U};

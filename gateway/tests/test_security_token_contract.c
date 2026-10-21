@@ -44,9 +44,8 @@ int main(void)
     security_contract_set_public_key(public_key);
     signing_key.crypto_lib = T_COSE_CRYPTO_LIB_OPENSSL;
     signing_key.k.key_ptr = key;
-    assert(token_builder_sign_seed(signing_key, seed, sizeof(seed), token,
-                                   sizeof(token), &token_len) ==
-           TOKEN_BUILDER_OK);
+    assert(token_build(signing_key, seed, token, sizeof(token),
+                       &token_len) == TOKEN_BUILD_OK);
     assert(token_len > 64u && token_len <= sizeof(token));
     assert(SecurityToken_VerifyOtaEntry(seed, token, token_len) ==
            SECURITY_TOKEN_RESULT_OK);
@@ -57,8 +56,8 @@ int main(void)
     tampered[token_len - 1u] ^= 0x01u;
     assert(SecurityToken_VerifyOtaEntry(seed, tampered, token_len) ==
            SECURITY_TOKEN_RESULT_BAD_SIGNATURE);
-    assert(token_builder_sign_seed(signing_key, seed, sizeof(seed), token, 8u,
-                                   &token_len) == TOKEN_BUILDER_TOO_LARGE);
+    assert(token_build(signing_key, seed, token, 8u, &token_len) ==
+           TOKEN_BUILD_TOO_LARGE);
 
     EVP_PKEY_free(key);
     return 0;

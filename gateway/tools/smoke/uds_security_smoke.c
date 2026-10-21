@@ -8,7 +8,7 @@
 #include "uds_client.h"
 #include "isotp_channel.h"
 #include "security_access.h"
-#include "token_signer_client.h"
+#include "security_token_tee.h"
 
 static void print_hex(const uint8_t *data, size_t data_len)
 {
@@ -28,7 +28,7 @@ int main(int argc, char **argv)
     IsotpChannelConfig config;
     IsotpChannel channel = {-1};
     UdsClient client;
-    TokenSignerClient_t signer = {0};
+    SecurityTokenTee_t *token_tee = NULL;
     int rc;
 
     isotp_channel_default_config(&config);
@@ -45,22 +45,18 @@ int main(int argc, char **argv)
     rc = uds_tester_present(&client);
     printf("tp rc=%d nrc=0x%02X\n", rc, client.last_nrc);
 
-    signer.endpoint = TOKEN_SIGNER_DEFAULT_ENDPOINT;
-    signer.expected_peer_uid = 200u;
-    signer.expected_peer_gid = 201u;
-    signer.expected_socket_uid = 200u;
-    signer.expected_socket_gid = 201u;
-    signer.expected_socket_mode = 0660u;
-    signer.timeout_ms = TOKEN_SIGNER_DEFAULT_TIMEOUT_MS;
-
     printf("== security access unlock ==\n");
-    rc = security_access_unlock(&client, &signer);
+    rc = security_token_tee_open(&token_tee);
+    if (rc == 0) {
+        rc = security_access_unlock(&client, token_tee);
+    }
     printf("unlock rc=%d nrc=0x%02X\n", rc, client.last_nrc);
     if (rc == 0) {
         printf("SECURITY ACCESS PASS\n");
     } else {
         printf("SECURITY ACCESS FAIL\n");
     }
+    security_token_tee_close(token_tee);
     isotp_channel_close(&channel);
     return rc == 0 ? 0 : 1;
 }

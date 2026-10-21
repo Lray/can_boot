@@ -74,7 +74,8 @@ memoryAddress=`0`、单块数据 256 字节、MCU 自动写入 inactive slot、
 `0x31 FF00` 擦除该槽，以及项目 token/signature SecurityAccess。
 `0x22` 当前每次只支持一个 DID（`maxNumberOfDIDsPerRDBIRequest=1`）；未知 DID
 返回 `7F 22 31`。项目识别 DID 为 `F1F0`~`F1F5`，分别表示 boot version、
-app version、updater version、active slot、confirm result 和 LSS identity；
+app version、updater version、active slot、confirm result 和出厂身份
+（`DID_FACTORY_IDENTITY`，`0xF1F5`）；
 `F180`~`F182` 不承载这些项目数据。
 
 S3Server 在完整诊断请求的最终响应发送完成后重启；抑制正响应时在服务完成后重启。

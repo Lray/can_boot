@@ -1,29 +1,31 @@
-# Single-MCU Update Chain Review
+# MCU Update Chain Review
 
 ## Decision
 
-The product is a T527 Linux application processor with exactly one
-resource-constrained MCU. The supported design is a single-MCU secure updater,
-not a generic vehicle gateway and not a multi-controller OTA framework.
+The current product is a T527 Linux gateway and one resource-constrained MCU.
+Each transaction selects the target by its factory identity and runs serially.
+Multi-MCU production requires recoverable Node-ID allocation and multi-node HIL.
 
 ```text
-systemd/network                token-signer-daemon
+systemd/network                 tee-supplicant
        |                              |
        v                              v
-SWUpdate Suricatta             OP-TEE signing key
+SWUpdate Suricatta              OP-TEE token TA
        |
        v
 Remote Handler (ZeroMQ)
        |
        v
-mcu-updater (one production process)
+mcu-updater (resident image receiver, direct libteec client)
   1. receive one bounded image.bin
-  2. enforce announced size and derive SHA-256
-  3. fsync and atomically publish
-  4. validate MCUboot metadata
-  5. authorize the UDS flashing session
-  6. transfer through fixed ISO-TP IDs
+  2. enforce announced reception size
+  3. buffer the current transaction in an anonymous memfd
+  4. send official ASCII commands to LSS_gateway through one exclusive Unix socket session
+     -> Fastscan/configuration/identity selection/inquiry/deselection -> active Node-ID
+  5. require Node-ID 1..127; call the OTA function and validate MCUboot metadata
+  6. verify the UDS identity, authorize, and transfer through that Node-ID's ISO-TP IDs
   7. reconnect and confirm the running image
+  8. return handler ACK only for confirmed success; otherwise return NACK
        |
        v
 MCUboot: signature / security counter / A-B boot / rollback
@@ -38,32 +40,40 @@ identity, consumed the same job directory, and together implemented one
 business operation. It also made a confirmed lifecycle state (`7`) disagree
 with the parent's success convention (`0`).
 
-The production updater now calls `mcu_update_run_job()` directly. The function
+The production updater now calls `mcu_update_run_image()` directly. The function
 returns `0` only after `OTA_STATE_CONFIRMED`; a separate result field retains
-the terminal lifecycle state for diagnostics. Package-policy, signer-policy,
+the terminal lifecycle state for diagnostics. Package-policy, token-policy,
 transport, execution, and internal failures use distinct non-zero codes.
 
 ## Boundaries retained
 
 - SWUpdate remains the only HawkBit/DDI client and signed-SWU verifier.
-- `PackageStore` remains the only streamed-image publication owner.
-- `mcu_update_run_job()` is the application service that joins trusted input,
-  the fixed transport, signer client, and the OTA executor.
+- `mcu_updater.c` owns bounded Remote Handler reception into a transaction-local
+  anonymous file; no package is published to persistent storage.
+- `LSS_gateway` initializes the only LSS Master and official Gateway ASCII
+  instances and connects the socket and CAN event loop following official
+  `CO_main_basic.c` and `CO_epoll_interface.c`.
+  Official `CO_fifo` and `CO_gateway_ascii` parse commands and run the state machine;
+  the gateway receives no images and persists no identity mappings.
+- `mcu_updater.c` extracts the image identity and sends `lss_allnodes 100 2 1`, `lss_switch_sel`,
+  `lss_get_node`, and `lss_switch_glob 0` through one connection to
+  `/run/LSS_gateway/command.sock`. It initializes no CANopen or LSS instance.
+- `mcu_update_run_image()` accepts the active Node-ID as task input and joins
+  the image, the direct TA client, and the OTA executor. It performs no LSS query.
 - `ota_executor` remains the only OTA lifecycle state machine.
-- The OP-TEE daemon remains a separate least-privilege key service because
-  isolation of the private signing key is a real security boundary.
+- The dedicated OP-TEE TA accepts only a SecurityAccess seed and constructs the
+  complete protocol-bound token in Secure World.
 - MCUboot remains the final image authenticity and rollback authority.
-
-## Diagnostic path
-
-`mcu-updater-direct` exists for board bring-up, HIL, and production-line
-diagnostics. It accepts an already published secure job directory and calls the
-same application service. Production deployment scripts do not install it,
-and it must not be described as a second production update architecture.
 
 ## Deliberate constraints
 
-The fixed CAN interface and `0x7E0/0x7E8` request/response IDs are valid product
-configuration for one MCU. This branch does not add controller manifests,
-dynamic CAN addressing, discovery, CANopen, Uptane, or multi-node scheduling.
-It does not use SWUpdate `hardware-compatibility`.
+The package carries the target factory identity. The updater requests Fastscan
+and queries the resident gateway for the active Node-ID in one exclusive session
+before calling the OTA function. The
+OTA task derives request/response IDs with
+`CAN_ID_UDS_REQUEST(node_id)` and `CAN_ID_UDS_RESPONSE(node_id)`. Parallel
+multi-node scheduling is deliberately absent. Starting allocation at `2` is valid
+for the current single MCU; multi-MCU commissioning interrupted after partial
+persistence requires a recoverable allocation strategy. Identity verification before and after reset uses the UDS
+factory identity DID. No identity/Node-ID mapping is persisted. SWUpdate
+`hardware-compatibility` is not used.

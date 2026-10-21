@@ -10,6 +10,54 @@
 #include <unistd.h>
 #include <zmq.h>
 
+#define REMOTE_MESSAGE_FRAMES 2u
+#define REMOTE_FRAME_COMMAND 0u
+#define REMOTE_FRAME_BODY 1u
+
+struct RHmsg
+{
+    zmq_msg_t frame[REMOTE_MESSAGE_FRAMES];
+};
+
+static void remote_message_close(struct RHmsg *message)
+{
+    size_t index;
+
+    for (index = 0u; index < REMOTE_MESSAGE_FRAMES; ++index)
+    {
+        (void)zmq_msg_close(&message->frame[index]);
+    }
+}
+
+static int remote_message_receive(void *socket, struct RHmsg *message)
+{
+    size_t index;
+
+    for (index = 0u; index < REMOTE_MESSAGE_FRAMES; ++index)
+    {
+        if (zmq_msg_init(&message->frame[index]) != 0)
+        {
+            while (index > 0u)
+            {
+                --index;
+                (void)zmq_msg_close(&message->frame[index]);
+            }
+            return -1;
+        }
+    }
+    for (index = 0u; index < REMOTE_MESSAGE_FRAMES; ++index)
+    {
+        if (zmq_msg_recv(&message->frame[index], socket, 0) < 0 ||
+            (index + 1u < REMOTE_MESSAGE_FRAMES) !=
+                (zmq_msg_more(&message->frame[index]) != 0))
+        {
+            remote_message_close(message);
+            return -1;
+        }
+    }
+    return 0;
+}
+
 static int prepare_endpoint(const char *endpoint, char *path_out, size_t path_cap,
                             int *lock_fd_out)
 {
@@ -111,45 +159,43 @@ void remote_handler_close(RemoteHandler_t *handler)
 }
 
 int remote_handler_receive(RemoteHandler_t *handler, char *command, size_t command_cap,
-                           uint8_t *body, size_t body_cap, size_t *body_len_out)
+                           uint8_t *body, size_t body_cap, size_t *command_len_out,
+                           size_t *body_len_out)
 {
-    zmq_msg_t command_msg;
-    zmq_msg_t body_msg;
-    int more = 0;
-    size_t more_size = sizeof(more);
+    struct RHmsg message;
+    size_t command_len;
+    size_t body_len;
 
     if (handler == NULL || handler->socket == NULL || command == NULL || body == NULL ||
-        body_len_out == NULL || command_cap == 0u || body_cap == 0u ||
-        zmq_msg_init(&command_msg) != 0)
+        command_len_out == NULL || body_len_out == NULL || command_cap == 0u ||
+        body_cap == 0u)
     {
         return -1;
     }
-    if (zmq_msg_recv(&command_msg, handler->socket, 0) < 0 ||
-        zmq_getsockopt(handler->socket, ZMQ_RCVMORE, &more, &more_size) != 0 || more == 0 ||
-        zmq_msg_size(&command_msg) >= command_cap || zmq_msg_init(&body_msg) != 0)
+    if (remote_message_receive(handler->socket, &message) != 0)
     {
-        (void)zmq_msg_close(&command_msg);
         return -1;
     }
-    memcpy(command, zmq_msg_data(&command_msg), zmq_msg_size(&command_msg));
-    command[zmq_msg_size(&command_msg)] = '\0';
-    (void)zmq_msg_close(&command_msg);
-    more = 0;
-    more_size = sizeof(more);
-    if (zmq_msg_recv(&body_msg, handler->socket, 0) < 0 ||
-        zmq_getsockopt(handler->socket, ZMQ_RCVMORE, &more, &more_size) != 0 || more != 0 ||
-        zmq_msg_size(&body_msg) > body_cap)
+    command_len = zmq_msg_size(&message.frame[REMOTE_FRAME_COMMAND]);
+    body_len = zmq_msg_size(&message.frame[REMOTE_FRAME_BODY]);
+    if (command_len >= command_cap || body_len > body_cap)
     {
-        (void)zmq_msg_close(&body_msg);
+        remote_message_close(&message);
         return -1;
     }
-    memcpy(body, zmq_msg_data(&body_msg), zmq_msg_size(&body_msg));
-    *body_len_out = zmq_msg_size(&body_msg);
-    (void)zmq_msg_close(&body_msg);
+    memcpy(command, zmq_msg_data(&message.frame[REMOTE_FRAME_COMMAND]), command_len);
+    command[command_len] = '\0';
+    if (body_len > 0u)
+    {
+        memcpy(body, zmq_msg_data(&message.frame[REMOTE_FRAME_BODY]), body_len);
+    }
+    *command_len_out = command_len;
+    *body_len_out = body_len;
+    remote_message_close(&message);
     return 0;
 }
 
-int remote_handler_reply(RemoteHandler_t *handler, const char *reply)
+int RHmsg_send_ack(RemoteHandler_t *handler, const char *reply)
 {
     if (handler == NULL || handler->socket == NULL || reply == NULL)
     {

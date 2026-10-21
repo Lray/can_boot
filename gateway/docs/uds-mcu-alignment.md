@@ -6,7 +6,8 @@ gateway 是 MCU 的 UDS client，不是第二个 UDS server。它不生成 `0x78
 
 ## 传输与寻址
 
-- Classic CAN、11-bit normal addressing：请求 `0x7E0`，响应 `0x7E8`，500 kbit/s。
+- Classic CAN、11-bit normal addressing：LSS Node-ID 为 `N` 时，请求
+  `0x600 + N`，响应 `0x580 + N`，500 kbit/s。
 - Linux SocketCAN ISO-TP 接收 Flow Control 默认为 `BS=8`、`STmin=2 ms`。配置同时接受
   ISO 15765-2 允许的 `BS=0` 和 `STmin=0x00..0x7F`、`0xF1..0xF9` 编码。
 - SocketCAN 将一个完整 ISO-TP PDU 交给 UDS client；若内核报告截断，UDS client 将其作为

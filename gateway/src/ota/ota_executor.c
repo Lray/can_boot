@@ -55,7 +55,7 @@ OtaState_t ota_executor_run(const OtaExecutorConfig_t *config,
     }
     memset(result_out, 0, sizeof(*result_out));
     if (config == NULL || package == NULL ||
-        !uds_client_is_ready(config->client) || config->signer == NULL ||
+        !uds_client_is_ready(config->client) || config->token_tee == NULL ||
         config->reconnect == NULL)
     {
         return OTA_STATE_PACKAGE_VALIDATED;
@@ -71,7 +71,7 @@ OtaState_t ota_executor_run(const OtaExecutorConfig_t *config,
                              config->reconnect_ctx, start + precheck_window, 0,
                              start + precheck_window,
                              &result_out->before);
-    if (rc != 0 || !CO_LSS_ADDRESS_EQUAL(result_out->before.identity, package->identity))
+    if (rc != 0 || !factory_identity_equal(&result_out->before.identity, &package->identity))
     {
         return OTA_STATE_PACKAGE_VALIDATED;
     }
@@ -86,7 +86,7 @@ OtaState_t ota_executor_run(const OtaExecutorConfig_t *config,
         return OTA_STATE_PACKAGE_VALIDATED;
     }
 
-    rc = security_access_unlock(config->client, config->signer);
+    rc = security_access_unlock(config->client, config->token_tee);
     if (rc != 0)
     {
         /* Diagnostic only: never emit the seed, token, or key material. */
@@ -124,7 +124,7 @@ OtaState_t ota_executor_run(const OtaExecutorConfig_t *config,
     {
         return OTA_STATE_RECONNECTED;
     }
-    if (!CO_LSS_ADDRESS_EQUAL(result_out->after.identity, package->identity))
+    if (!factory_identity_equal(&result_out->after.identity, &package->identity))
     {
         return OTA_STATE_POST_RESET_CHECKED;
     }

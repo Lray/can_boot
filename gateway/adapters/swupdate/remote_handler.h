@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define REMOTE_HANDLER_DEFAULT_ENDPOINT "ipc:///run/mcu-update/remote-handler/mcu-v1"
+#define REMOTE_HANDLER_ENDPOINT "ipc:///run/mcu-update/remote-handler/image-install"
 #define REMOTE_HANDLER_CMD_MAX 96u
 
 typedef struct
@@ -18,7 +18,8 @@ typedef struct
 int remote_handler_init(RemoteHandler_t *handler, const char *endpoint, int receive_timeout_ms);
 void remote_handler_close(RemoteHandler_t *handler);
 int remote_handler_receive(RemoteHandler_t *handler, char *command, size_t command_cap,
-                           uint8_t *body, size_t body_cap, size_t *body_len_out);
-int remote_handler_reply(RemoteHandler_t *handler, const char *reply);
+                           uint8_t *body, size_t body_cap, size_t *command_len_out,
+                           size_t *body_len_out);
+int RHmsg_send_ack(RemoteHandler_t *handler, const char *reply);
 
 #endif

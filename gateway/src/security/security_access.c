@@ -15,7 +15,7 @@
  * This function does not switch the diagnostic session. SID 0x10
  * DiagnosticSessionControl is responsible for selecting that session.
  */
-int security_access_unlock(UdsClient *client, const TokenSignerClient_t *signer)
+int security_access_unlock(UdsClient *client, SecurityTokenTee_t *token_tee)
 {
     uint8_t seed[SECURITY_ACCESS_SEED_MAX_SIZE] = {0};
     uint8_t token[SECURITY_ACCESS_TOKEN_MAX_SIZE] = {0};
@@ -23,7 +23,7 @@ int security_access_unlock(UdsClient *client, const TokenSignerClient_t *signer)
     size_t token_len = 0u;
     int rc = 0;
 
-    if (!uds_client_is_ready(client) || signer == NULL)
+    if (!uds_client_is_ready(client) || token_tee == NULL)
     {
         return SECURITY_ERR_INVALID_ARG;
     }
@@ -43,13 +43,12 @@ int security_access_unlock(UdsClient *client, const TokenSignerClient_t *signer)
     }
     if (rc == 0)
     {
-        /*请求签名进程对种子挑战完成签名*/
-        const int signer_rc = token_signer_client_issue(signer, seed, seed_len,
-                                                        token, sizeof(token), &token_len);
-        if (signer_rc != 0)
+        const int tee_result = security_token_tee_issue(
+            token_tee, seed, token, sizeof(token), &token_len);
+        if (tee_result != 0)
         {
-            /* Numeric provider result only; never log seed or token. */
-            fprintf(stderr, "mcu-update-engine: token-signer client failed rc=%d\n", signer_rc);
+            fprintf(stderr, "mcu-update-engine: secure token issue failed rc=%d\n",
+                    tee_result);
             rc = SECURITY_ERR_PROVIDER;
         }
     }

@@ -39,10 +39,10 @@ int main(void)
     assert(DID_UPDATER_VERSION == 0xF1F2u);
     assert(DID_ACTIVE_SLOT == 0xF1F3u);
     assert(DID_CONFIRM_RESULT == 0xF1F4u);
-    assert(DID_LSS_IDENTITY == 0xF1F5u);
+    assert(DID_FACTORY_IDENTITY == 0xF1F5u);
     assert(UDS_ROUTINE_CONTROL_REQUEST_LEN == 4u);
     assert(UDS_ERASE_MEMORY_RESULT_LEN == 8u);
-    assert(DOWNLOAD_PREPARATION_TIMEOUT_MS == 30000u);
-    assert(DOWNLOAD_PREPARATION_POLL_MS == 250u);
+    assert(DOWNLOAD_PREPARATION_TIMEOUT_MS == 1000u);
+    assert(DOWNLOAD_PREPARATION_POLL_MS == 50u);
     return 0;
 }

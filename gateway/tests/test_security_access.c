@@ -2,9 +2,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
-#include <unistd.h>
-
-#include "fake_signer.h"
 #include "profile.h"
 #include "security_access.h"
 #include "transport.h"
@@ -17,6 +14,22 @@ typedef struct
     unsigned int request_count;
     bool zero_seed;
 } FakeTransport_t;
+
+static const uint8_t expected_seed[] = {0x10u, 0x20u, 0x30u, 0x40u};
+
+int security_token_tee_issue(SecurityTokenTee_t *tee, const uint8_t seed[4],
+                             uint8_t *token_out, size_t token_cap,
+                             size_t *token_len_out)
+{
+    static const uint8_t token[] = {0xD2u, 0x84u, 0x40u};
+
+    assert(tee != NULL);
+    assert(memcmp(seed, expected_seed, sizeof(expected_seed)) == 0);
+    assert(token_cap >= sizeof(token));
+    memcpy(token_out, token, sizeof(token));
+    *token_len_out = sizeof(token);
+    return 0;
+}
 
 static int fake_send(void *ctx, const uint8_t *data, size_t length)
 {
@@ -75,30 +88,18 @@ static int fake_receive(void *ctx, uint8_t *data, size_t data_cap, size_t *data_
 int main(void)
 {
     static const TransportOps operations = {fake_send, fake_receive};
-    static const uint8_t expected_seed[] = {0x10u, 0x20u, 0x30u, 0x40u};
     FakeTransport_t transport = {0};
-    FakeSignerSession_t signer_server = {0};
-    TokenSignerClient_t signer = {0};
+    SecurityTokenTee_t *token_tee = (SecurityTokenTee_t *)&transport;
     UdsClient client = {0};
 
-    fake_signer_start(&signer_server, expected_seed, sizeof(expected_seed), 0);
-    signer.endpoint = signer_server.socket_path;
-    signer.expected_peer_uid = geteuid();
-    signer.expected_peer_gid = getegid();
-    signer.expected_socket_uid = geteuid();
-    signer.expected_socket_gid = getegid();
-    signer.expected_socket_mode = 0660u;
-    signer.timeout_ms = TOKEN_SIGNER_DEFAULT_TIMEOUT_MS;
     uds_client_init(&client, &operations, &transport);
 
-    assert(security_access_unlock(&client, &signer) == 0);
+    assert(security_access_unlock(&client, token_tee) == 0);
     assert(transport.request_count == 2u);
-    assert(fake_signer_join(&signer_server) == 0);
 
     transport = (FakeTransport_t){{0}, 0u, 0u, true};
-    signer.endpoint = "/nonexistent/signer";
     uds_client_init(&client, &operations, &transport);
-    assert(security_access_unlock(&client, &signer) == 0);
+    assert(security_access_unlock(&client, token_tee) == 0);
     assert(transport.request_count == 1u);
     return 0;
 }

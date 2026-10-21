@@ -115,7 +115,7 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
         network = CAN_NETWORK_H.read_text(encoding="utf-8")
         heartbeat_init = re.search(
             r"s_heartbeat_tx_buffer\s*=\s*CO_CANtxBufferInit\("
-            r".*?CAN_ID_HEARTBEAT\(s_lss_pending_node_id\),\s*false,\s*(?P<dlc>\d+U)",
+            r".*?CAN_ID_HEARTBEAT\(node_id\),\s*false,\s*(?P<dlc>\d+U)",
             main,
             re.DOTALL,
         )
@@ -256,14 +256,18 @@ class TargetRuntimeConstraintsTest(unittest.TestCase):
         main = MAIN_C.read_text(encoding="utf-8")
 
         can_start = main.find("CO_CANsetNormalMode(")
+        communication_start = main.find("if (!ResetCommunication())")
         confirm = main.find("ImageConfirm_RunStartupSelfCheck(startup_health_ok)")
         self.assertNotEqual(can_start, -1, "main must start FDCAN")
-        self.assertNotEqual(confirm, -1, "main must run D12 startup confirm")
-        self.assertIn(
-            "startup_health_ok = startup_health_ok && can_started",
-            main,
-            "startup confirm must consume the actual CAN bring-up result",
+        self.assertNotEqual(
+            communication_start,
+            -1,
+            "main must fail when CAN communication initialization fails",
         )
+        self.assertNotEqual(confirm, -1, "main must run D12 startup confirm")
+        communication_guard = main[communication_start:confirm]
+        self.assertIn("startup_health_ok = false;", communication_guard)
+        self.assertIn("Error_Handler();", communication_guard)
 
         self.assertLess(
             can_start,

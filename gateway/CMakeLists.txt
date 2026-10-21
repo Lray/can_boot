@@ -19,9 +19,7 @@ set(GATEWAY_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/security
     ${CMAKE_CURRENT_SOURCE_DIR}/src/package
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ota
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/CANopenLinux
     ${CMAKE_CURRENT_SOURCE_DIR}/..
-    ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/CANopenNode
 )
 
 set(GATEWAY_CANOPEN_LINUX_DIR
@@ -31,28 +29,29 @@ set(GATEWAY_CANOPENNODE_DIR
     ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/CANopenNode
 )
 
-add_library(gateway-canopen-linux STATIC
+add_executable(LSS_gateway
+    apps/LSS_gateway/LSS_gateway.c
     third_party/CANopenLinux/CO_driver.c
-    ../third_party/CANopenNode/305/CO_LSSmaster.c
+    ${GATEWAY_CANOPENNODE_DIR}/301/CO_fifo.c
+    ${GATEWAY_CANOPENNODE_DIR}/305/CO_LSSmaster.c
+    ${GATEWAY_CANOPENNODE_DIR}/309/CO_gateway_ascii.c
 )
-target_include_directories(gateway-canopen-linux PUBLIC
+target_include_directories(LSS_gateway PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${GATEWAY_CANOPEN_LINUX_DIR}
     ${GATEWAY_CANOPENNODE_DIR}
 )
-target_compile_definitions(gateway-canopen-linux PUBLIC _GNU_SOURCE CO_SINGLE_THREAD)
-
-add_executable(gateway-lss-master
-    apps/lss_master/lss_master_main.c
-)
-add_library(gateway-lss-runtime STATIC
-    apps/lss_master/lss_runtime.c
-)
-target_include_directories(gateway-lss-runtime PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/apps/lss_master
-    ${GATEWAY_INCLUDE_DIRS}
-)
-target_link_libraries(gateway-lss-runtime PUBLIC gateway-canopen-linux)
-target_link_libraries(gateway-lss-master PRIVATE gateway-lss-runtime)
+target_compile_definitions(LSS_gateway PRIVATE _GNU_SOURCE CO_SINGLE_THREAD)
+target_compile_options(LSS_gateway PRIVATE
+    -include ${CMAKE_CURRENT_SOURCE_DIR}/src/CO_driver_conf.h)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    # The pinned FIFO keeps an unused CRC argument when CRC support is disabled.
+    set_source_files_properties(${GATEWAY_CANOPENNODE_DIR}/301/CO_fifo.c
+        PROPERTIES COMPILE_OPTIONS -Wno-unused-parameter)
+    # The pinned ASCII gateway retains SDO/NMT helpers in its LSS-only configuration.
+    set_source_files_properties(${GATEWAY_CANOPENNODE_DIR}/309/CO_gateway_ascii.c
+        PROPERTIES COMPILE_OPTIONS "-Wno-unused-but-set-variable;-Wno-unused-function")
+endif()
 
 add_library(gateway-byte-order STATIC
     src/codec/byte_order.c
@@ -61,14 +60,6 @@ target_include_directories(gateway-byte-order PUBLIC
     ${GATEWAY_INCLUDE_DIRS}
 )
 target_compile_definitions(gateway-byte-order PUBLIC _DEFAULT_SOURCE)
-
-add_library(gateway-hash STATIC
-    src/package/sha256.c
-)
-target_include_directories(gateway-hash PUBLIC
-    ${GATEWAY_INCLUDE_DIRS}
-)
-target_link_libraries(gateway-hash PUBLIC gateway-byte-order)
 
 add_library(gateway-core STATIC
     src/util/util.c
@@ -101,7 +92,6 @@ target_compile_definitions(gateway-core PUBLIC _DEFAULT_SOURCE)
 find_package(Threads REQUIRED)
 target_link_libraries(gateway-core PUBLIC
     gateway-byte-order
-    gateway-hash
     Threads::Threads
     pthread
 )
@@ -133,17 +123,6 @@ target_include_directories(gateway-log-sink PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/..
 )
 
-add_library(gateway-bridge-support STATIC
-    adapters/swupdate/package_store.c
-    adapters/swupdate/fs_util.c
-)
-target_include_directories(gateway-bridge-support PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/adapters/swupdate
-    ${GATEWAY_INCLUDE_DIRS}
-)
-target_compile_definitions(gateway-bridge-support PUBLIC _GNU_SOURCE)
-target_link_libraries(gateway-bridge-support PUBLIC gateway-hash)
-
 set(GATEWAY_QCBOR_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/QCBOR)
 add_library(gateway-qcbor STATIC
     ${GATEWAY_QCBOR_ROOT}/src/qcbor_decode.c
@@ -154,17 +133,6 @@ add_library(gateway-qcbor STATIC
 target_include_directories(gateway-qcbor PUBLIC ${GATEWAY_QCBOR_ROOT}/inc)
 target_compile_definitions(gateway-qcbor PRIVATE QCBOR_DISABLE_FLOAT_HW_USE)
 
-add_library(gateway-token-signer-client STATIC
-    src/security/token_signer_codec.c
-    src/security/token_signer_client.c
-)
-target_include_directories(gateway-token-signer-client PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/security
-    ${GATEWAY_INCLUDE_DIRS}
-)
-target_compile_definitions(gateway-token-signer-client PRIVATE _GNU_SOURCE)
-target_link_libraries(gateway-token-signer-client PRIVATE gateway-core gateway-qcbor)
-
 add_library(gateway-mcu-update-engine STATIC
     src/ota/ota_executor.c
     src/security/security_access.c
@@ -174,7 +142,6 @@ target_include_directories(gateway-mcu-update-engine PUBLIC
 )
 target_link_libraries(gateway-mcu-update-engine PUBLIC
     gateway-core
-    gateway-token-signer-client
 )
 
 add_library(gateway-mcu-update-app STATIC
@@ -187,29 +154,8 @@ target_include_directories(gateway-mcu-update-app PUBLIC
 target_compile_definitions(gateway-mcu-update-app PRIVATE _GNU_SOURCE)
 target_link_libraries(gateway-mcu-update-app
     PUBLIC gateway-mcu-update-engine
-    PRIVATE gateway-lss-runtime
     PRIVATE rt
 )
-
-add_executable(mcu-updater-direct
-    apps/mcu_updater/direct_main.c
-    apps/mcu_updater/direct_args.c
-)
-target_include_directories(mcu-updater-direct PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/apps/mcu_updater
-)
-target_compile_definitions(mcu-updater-direct PRIVATE _GNU_SOURCE)
-target_link_libraries(mcu-updater-direct PRIVATE
-    gateway-mcu-update-app
-)
-
-add_executable(mcu-package-probe
-    apps/mcu_updater/package_probe.c
-)
-target_include_directories(mcu-package-probe PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/apps/mcu_updater
-)
-target_link_libraries(mcu-package-probe PRIVATE gateway-core)
 
 add_executable(gateway-log-receiver
     apps/log_receiver/log_receiver_main.c
@@ -228,6 +174,23 @@ if(ENABLE_SWUPDATE_BRIDGE)
     if(NOT ZMQ_INCLUDE_DIR OR NOT ZMQ_LIBRARY)
         message(FATAL_ERROR "ENABLE_SWUPDATE_BRIDGE requires libzmq headers and library")
     endif()
+    set(TEE_INCLUDE_DIR "" CACHE PATH "OP-TEE export-ca include directory")
+    set(TEE_LIBRARY "" CACHE FILEPATH "libteec path")
+    if(NOT TEE_INCLUDE_DIR OR NOT TEE_LIBRARY)
+        message(FATAL_ERROR "ENABLE_SWUPDATE_BRIDGE requires the OP-TEE export-ca devkit")
+    endif()
+
+    add_library(gateway-security-token-tee STATIC
+        src/security/security_token_tee.c
+    )
+    target_include_directories(gateway-security-token-tee PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/security
+        ${CMAKE_CURRENT_SOURCE_DIR}/optee/security-token/ta/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/..
+        ${TEE_INCLUDE_DIR}
+    )
+    set_target_properties(gateway-security-token-tee PROPERTIES SKIP_BUILD_RPATH TRUE)
+    target_link_libraries(gateway-security-token-tee PUBLIC ${TEE_LIBRARY})
 
     add_library(gateway-remote-handler STATIC
         adapters/swupdate/remote_handler.c
@@ -240,19 +203,16 @@ if(ENABLE_SWUPDATE_BRIDGE)
     target_link_libraries(gateway-remote-handler PUBLIC ${ZMQ_LIBRARY})
 
     add_executable(mcu-updater
-        apps/mcu_updater/mcu_updater_main.c
-        apps/mcu_updater/mcu_updater_args.c
+        apps/mcu_updater/mcu_updater.c
     )
     target_include_directories(mcu-updater PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/apps/mcu_updater
     )
-    target_include_directories(mcu-updater SYSTEM PRIVATE ${ZMQ_INCLUDE_DIR})
     target_compile_definitions(mcu-updater PRIVATE _GNU_SOURCE)
     target_link_libraries(mcu-updater PRIVATE
-        gateway-bridge-support
         gateway-remote-handler
         gateway-mcu-update-app
-        ${ZMQ_LIBRARY}
+        gateway-security-token-tee
     )
 
 endif()
@@ -294,6 +254,7 @@ add_executable(test-gateway-ota-session
     src/ota/ota_executor.c
 )
 target_include_directories(test-gateway-ota-session PRIVATE ${GATEWAY_INCLUDE_DIRS})
+target_compile_definitions(test-gateway-ota-session PRIVATE _DEFAULT_SOURCE)
 add_test(NAME gateway-ota-session COMMAND test-gateway-ota-session)
 
 add_executable(test-gateway-log-receiver
@@ -313,22 +274,6 @@ add_executable(test-gateway-transfer
 target_link_libraries(test-gateway-transfer PRIVATE gateway-core)
 add_test(NAME gateway-transfer COMMAND test-gateway-transfer)
 
-add_executable(test-gateway-package-store
-    tests/test_package_store.c
-)
-target_link_libraries(test-gateway-package-store PRIVATE gateway-bridge-support)
-add_test(NAME gateway-package-store COMMAND test-gateway-package-store)
-
-add_executable(test-mcu-updater-args
-    tests/test_mcu_updater_args.c
-    apps/mcu_updater/mcu_updater_args.c
-)
-target_include_directories(test-mcu-updater-args PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/apps/mcu_updater
-    ${CMAKE_CURRENT_SOURCE_DIR}/adapters/swupdate
-)
-target_link_libraries(test-mcu-updater-args PRIVATE gateway-core)
-add_test(NAME mcu-updater-args COMMAND test-mcu-updater-args)
 add_test(NAME mcu-updater-runtime-contract
     COMMAND ${CMAKE_COMMAND}
         -DGATEWAY_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
@@ -341,28 +286,11 @@ add_executable(test-gateway-package-metadata
 target_link_libraries(test-gateway-package-metadata PRIVATE gateway-core)
 add_test(NAME gateway-package-metadata COMMAND test-gateway-package-metadata)
 
-add_executable(test-gateway-token-signer-client
-    tests/test_token_signer_client.c
-    tests/fake_signer.c
-)
-target_compile_definitions(test-gateway-token-signer-client PRIVATE _GNU_SOURCE)
-target_link_libraries(test-gateway-token-signer-client PRIVATE
-    gateway-core
-    gateway-token-signer-client
-    gateway-qcbor
-    Threads::Threads
-)
-add_test(NAME gateway-token-signer-client COMMAND test-gateway-token-signer-client)
-
 add_executable(test-gateway-security-access
     tests/test_security_access.c
-    tests/fake_signer.c
 )
-target_compile_definitions(test-gateway-security-access PRIVATE _GNU_SOURCE)
 target_link_libraries(test-gateway-security-access PRIVATE
     gateway-mcu-update-engine
-    gateway-qcbor
-    Threads::Threads
 )
 add_test(NAME gateway-security-access COMMAND test-gateway-security-access)
 
@@ -370,7 +298,7 @@ find_package(OpenSSL REQUIRED)
 add_executable(test-security-token-contract
     tests/test_security_token_contract.c
     tests/security_contract_crypto.c
-    apps/token-signer-daemon/token_builder.c
+    optee/security-token/ta/token_builder.c
     ../can/security/security_token.c
     ../can/security/security_token_cose.c
     ../third_party/t_cose/src/t_cose_sign1_sign.c
@@ -379,7 +307,7 @@ add_executable(test-security-token-contract
     ../third_party/t_cose/src/t_cose_util.c
 )
 target_include_directories(test-security-token-contract PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/apps/token-signer-daemon
+    ${CMAKE_CURRENT_SOURCE_DIR}/optee/security-token/ta
     ${CMAKE_CURRENT_SOURCE_DIR}/../can/security
     ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/t_cose/inc
     ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/t_cose/src
@@ -413,66 +341,12 @@ add_executable(uds_smoke
 )
 target_link_libraries(uds_smoke PRIVATE gateway-core)
 
-add_executable(uds_security_smoke
-    tools/smoke/uds_security_smoke.c
-)
-target_compile_definitions(uds_security_smoke PRIVATE _GNU_SOURCE)
-target_link_libraries(uds_security_smoke PRIVATE
-    gateway-mcu-update-engine
-)
-
-option(ENABLE_TOKEN_SIGNER_DAEMON
-       "Build the C token signer daemon" OFF)
-if(ENABLE_TOKEN_SIGNER_DAEMON)
-    find_package(OpenSSL REQUIRED)
-
-    set(TEE_INCLUDE_DIR "" CACHE PATH "OP-TEE export-ca include directory")
-    set(TEE_LIBRARY "" CACHE FILEPATH "libteec path")
-    if(NOT TEE_INCLUDE_DIR OR NOT TEE_LIBRARY)
-        message(FATAL_ERROR "TEE_INCLUDE_DIR and TEE_LIBRARY must point to the OP-TEE export-ca devkit")
-    endif()
-
-    add_executable(token-signer-daemon
-        apps/token-signer-daemon/token_signer_daemon_main.c
-        apps/token-signer-daemon/token_signer_daemon.c
-        apps/token-signer-daemon/token_builder.c
-        apps/token-signer-daemon/token_signer_tee.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/t_cose/src/t_cose_sign1_sign.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/t_cose/src/t_cose_util.c
+if(ENABLE_SWUPDATE_BRIDGE)
+    add_executable(uds_security_smoke
+        tools/smoke/uds_security_smoke.c
     )
-    target_include_directories(token-signer-daemon PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/apps/token-signer-daemon
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/package
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/util
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/security
-        ${CMAKE_CURRENT_SOURCE_DIR}/..
-        ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/t_cose/inc
-        ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/t_cose/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/optee/ecdsa-p256-sign/ta/include
-        ${TEE_INCLUDE_DIR}
-    )
-    target_compile_definitions(token-signer-daemon PRIVATE
-        _GNU_SOURCE
-        T_COSE_USE_OPENSSL_CRYPTO
-        T_COSE_DISABLE_ES384
-        T_COSE_DISABLE_ES512
-        T_COSE_DISABLE_EDDSA
-        T_COSE_DISABLE_PS256
-        T_COSE_DISABLE_PS384
-        T_COSE_DISABLE_PS512
-        T_COSE_DISABLE_SHORT_CIRCUIT_SIGN
-    )
-    set_target_properties(token-signer-daemon PROPERTIES SKIP_BUILD_RPATH TRUE)
-    target_link_libraries(token-signer-daemon PRIVATE
-        gateway-qcbor
-        OpenSSL::Crypto
-        ${TEE_LIBRARY}
+    target_link_libraries(uds_security_smoke PRIVATE
+        gateway-mcu-update-engine
+        gateway-security-token-tee
     )
 endif()
-
-add_executable(uds_multiframe_smoke
-    tools/smoke/uds_multiframe_smoke.c
-)
-target_compile_definitions(uds_multiframe_smoke PRIVATE _GNU_SOURCE)
-target_link_libraries(uds_multiframe_smoke PRIVATE gateway-core)

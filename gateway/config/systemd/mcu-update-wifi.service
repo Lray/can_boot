@@ -6,8 +6,7 @@ Before=mcu-update-wpa-supplicant.service mcu-update-network-online.service
 
 [Service]
 Type=oneshot
-EnvironmentFile=/etc/mcu-update/wifi.conf
-ExecStart=/usr/sbin/ip link set dev ${MCU_WIFI_IFNAME} up
+ExecStart=/usr/sbin/ip link set dev wlan0 up
 RemainAfterExit=yes
 
 [Install]
