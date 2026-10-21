@@ -13,6 +13,7 @@ typedef struct
     size_t last_request_len;
     unsigned int request_count;
     bool zero_seed;
+    bool response_available;
 } FakeTransport_t;
 
 static const uint8_t expected_seed[] = {0x10u, 0x20u, 0x30u, 0x40u};
@@ -39,6 +40,7 @@ static int fake_send(void *ctx, const uint8_t *data, size_t length)
     memcpy(transport->last_request, data, length);
     transport->last_request_len = length;
     transport->request_count++;
+    transport->response_available = true;
     return 0;
 }
 
@@ -48,6 +50,11 @@ static int fake_receive(void *ctx, uint8_t *data, size_t data_cap, size_t *data_
     FakeTransport_t *transport = (FakeTransport_t *)ctx;
 
     (void)timeout_ms;
+    if (!transport->response_available)
+    {
+        return -1;
+    }
+    transport->response_available = false;
     if (transport->last_request[1] == SECURITY_ACCESS_LEVEL_PROGRAMMING_SEED)
     {
         static const uint8_t response[] = {
@@ -97,7 +104,7 @@ int main(void)
     assert(security_access_unlock(&client, token_tee) == 0);
     assert(transport.request_count == 2u);
 
-    transport = (FakeTransport_t){{0}, 0u, 0u, true};
+    transport = (FakeTransport_t){.zero_seed = true};
     uds_client_init(&client, &operations, &transport);
     assert(security_access_unlock(&client, token_tee) == 0);
     assert(transport.request_count == 1u);

@@ -25,8 +25,7 @@ static int wait_for_erase_completion(UdsClient *client)
             return 0;
         }
         /* RequestRoutineResults before results are ready returns NRC 0x24. */
-        if (rc != 0 && !(rc == UDS_ERR_NEGATIVE_RESPONSE &&
-                         client->last_nrc == NRC_REQUEST_SEQUENCE_ERROR))
+        if (rc != 0 && rc != UDS_NRC_RequestSequenceError)
         {
             return rc;
         }
@@ -46,6 +45,7 @@ int transfer_execute(UdsClient *client,
     uint16_t chunk_limit = 0u;
     uint32_t offset = 0u;
     uint8_t block_sequence = 1u;
+    uint64_t last_tester_present_ms = 0u;
     int rc = 0;
 
     if (client == NULL || image == NULL)
@@ -79,6 +79,7 @@ int transfer_execute(UdsClient *client,
     {
         chunk_limit = TRANSFER_BLOCK_PAYLOAD;
     }
+    last_tester_present_ms = util_monotonic_ms();
 
     while (offset < image_size)
     {
@@ -87,6 +88,16 @@ int transfer_execute(UdsClient *client,
                                         ? chunk_limit
                                         : remaining);
 
+        if (util_monotonic_ms() - last_tester_present_ms >=
+            UDS_TESTER_PRESENT_INTERVAL_MS)
+        {
+            rc = uds_tester_present(client);
+            if (rc != 0)
+            {
+                return rc;
+            }
+            last_tester_present_ms = util_monotonic_ms();
+        }
         rc = uds_transfer_data(client, block_sequence, image + offset, chunk);
         if (rc != 0)
         {

@@ -20,7 +20,7 @@ static int read_snapshot(UdsClient *client, McuSnapshot_t *snapshot_out)
     rc = uds_read_did(client, DID_FACTORY_IDENTITY, value, sizeof(value), &value_len);
     if (rc != 0 || value_len != OTA_ENVELOPE_IDENTITY_SIZE)
     {
-        return rc != 0 ? rc : UDS_ERR_MALFORMED_RESPONSE;
+        return rc != 0 ? rc : UDS_ERR_RESP_TOO_SHORT;
     }
     snapshot_out->identity.vendor_id = byte_order_get_u32_be(value);
     snapshot_out->identity.product_code = byte_order_get_u32_be(value + 4u);
@@ -31,7 +31,7 @@ static int read_snapshot(UdsClient *client, McuSnapshot_t *snapshot_out)
                       &value_len);
     if (rc != 0 || value_len != 1u || value[0] > 1u)
     {
-        return rc != 0 ? rc : UDS_ERR_MALFORMED_RESPONSE;
+        return rc != 0 ? rc : UDS_ERR_RESP_TOO_SHORT;
     }
     snapshot_out->active_slot = value[0];
 
@@ -39,7 +39,7 @@ static int read_snapshot(UdsClient *client, McuSnapshot_t *snapshot_out)
                       &value_len);
     if (rc != 0 || value_len != MCUBOOT_IMAGE_VERSION_SIZE_BYTES)
     {
-        return rc != 0 ? rc : UDS_ERR_MALFORMED_RESPONSE;
+        return rc != 0 ? rc : UDS_ERR_RESP_TOO_SHORT;
     }
     snapshot_out->app_version.iv_major = value[0];
     snapshot_out->app_version.iv_minor = value[1];
@@ -50,7 +50,7 @@ static int read_snapshot(UdsClient *client, McuSnapshot_t *snapshot_out)
                       &value_len);
     if (rc != 0 || value_len != 1u)
     {
-        return rc != 0 ? rc : UDS_ERR_MALFORMED_RESPONSE;
+        return rc != 0 ? rc : UDS_ERR_RESP_TOO_SHORT;
     }
     snapshot_out->confirm_result = value[0];
     if (util_monotonic_ms() - start > OTA_SNAPSHOT_MAX_SPAN_MS)

@@ -130,7 +130,8 @@ Required evidence:
 
 - an interrupted transfer is restarted by erasing the inactive slot and sending
   the image again from block sequence counter `0x01`
-- wrong BSC returns NRC `0x73`, and the gateway stops the stream
+- wrong or repeated BSC returns upstream NRC `0x24`, resets the transfer state,
+  and the gateway stops the stream without retrying the block
 - a malformed or wrongly signed image may pass transport pre-check only if its
   format is valid; after reset MCUboot must reject it and retain the previous slot
 - confirm-missing rollback evidence captures the test-boot version and

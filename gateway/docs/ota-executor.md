@@ -33,6 +33,9 @@ starts the `0x31 FF00` EraseMemory routine and polls its results, then sends
 `0x34` carrying only the standard address and size fields, and executes the
 full transfer. The expected target slot for post-reset verification is derived
 from the pre-update active slot; the MCU selects its inactive slot for writing.
+The helper never retries an ambiguous TransferData timeout. The upstream UDS
+server rejects a repeated or skipped BSC with NRC `0x24` and resets its transfer
+state, so recovery starts a new erase/download sequence.
 
 `download` is likewise a transfer helper: it owns target selection, byte count,
 block sequence, and terminal state for `0x31/0x34/0x36/0x37`. The typed UDS

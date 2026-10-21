@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <stdint.h>
 
+#include "iso14229.h"
 #include "profile.h"
 
 int main(void)
@@ -24,11 +25,11 @@ int main(void)
     assert(P2_STAR_SERVER_DEFAULT_MS == 5000u);
     assert(P2_STAR_SERVER_WIRE_UNIT_MS == 10u);
     assert(P2_STAR_SERVER_DEFAULT_WIRE == 0x01F4u);
-    assert(UDS_RESPONSE_PENDING_MAX_COUNT == 8u);
+    assert(UDS_TESTER_PRESENT_INTERVAL_MS == 2000u);
     assert(MCU_UPDATE_TOTAL_TIMEOUT_MS == 500000u);
     assert(MCU_UPDATE_REMOTE_WAIT_MS == 540000u);
     assert(SESSION_DEFAULT == 0x01u);
-    assert(NRC_BUSY_REPEAT_REQUEST == 0x21u);
+    assert(UDS_NRC_BusyRepeatRequest == 0x21u);
     assert(TRANSFER_BLOCK_PAYLOAD == 256u);
     assert(MCUBOOT_IMAGE_VERSION_SIZE_BYTES == 8u);
     assert(UDS_REQUEST_DOWNLOAD_REQUEST_LEN == 11u);

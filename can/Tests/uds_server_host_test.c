@@ -9,77 +9,66 @@
 #include "uds_read_did.h"
 #include "uds_server.h"
 
-static uint8_t s_response[16];
+static uint8_t s_response[32];
 static uint16_t s_response_length;
-static bool s_pending;
-static bool s_async_send;
 static bool s_unlocked;
 static bool s_download_active;
 static unsigned int s_abort_count;
+static uint8_t s_last_bsc;
 static download_preparation_status_t s_preparation_status;
-static download_result_t s_transfer_result;
-static download_result_t s_exit_result;
 
 static bool send_response(const uint8_t *data, uint16_t length)
 {
     assert(length <= sizeof(s_response));
     memcpy(s_response, data, length);
     s_response_length = length;
-    s_pending = s_async_send;
     return true;
 }
 
 static bool response_pending(void)
 {
-    return s_pending;
+    return false;
 }
 
-static void dispatch_at(uint32_t now, const uint8_t *request, uint16_t length)
+static void transact(uint32_t now, const uint8_t *request, uint16_t length)
 {
-    UDS_Poll(now);
     s_response_length = 0U;
     UDS_Dispatch(request, length);
+    UDS_Poll(now);
+    UDS_Poll(now + P2_SERVER_DEFAULT_MS + 1U);
+    assert(s_response_length != 0U);
 }
 
 void SecurityAccess_Init(void) { s_unlocked = false; }
 void SecurityAccess_ClearUnlock(void) { s_unlocked = false; }
-void SecurityAccess_Poll(uint32_t now_ms) { (void)now_ms; }
 bool SecurityAccess_IsUnlocked(void) { return s_unlocked; }
-security_access_result_t SecurityAccess_RequestSeed(uint32_t now_ms,
-                                                    uint8_t seed[SECURITY_ACCESS_SEED_SIZE])
+security_access_result_t SecurityAccess_RequestSeed(
+    uint8_t seed[SECURITY_ACCESS_SEED_SIZE])
 {
-    (void)now_ms;
     memset(seed, 1, SECURITY_ACCESS_SEED_SIZE);
     return SECURITY_ACCESS_RESULT_OK;
 }
-security_access_result_t SecurityAccess_SubmitKey(const uint8_t *key,
-                                                   uint16_t length,
-                                                   uint32_t now_ms)
+security_access_result_t SecurityAccess_SubmitKey(
+    const uint8_t *key, uint16_t length)
 {
     (void)key;
     (void)length;
-    (void)now_ms;
     s_unlocked = true;
     return SECURITY_ACCESS_RESULT_OK;
-}
-void SecurityAccess_GetLockoutStatus(uint32_t now_ms,
-                                     uint8_t *failed_attempts,
-                                     uint32_t *remaining_delay_ms)
-{
-    (void)now_ms;
-    (void)failed_attempts;
-    (void)remaining_delay_ms;
 }
 
 void Download_Init(void)
 {
     s_abort_count = 0U;
     s_download_active = false;
+    s_last_bsc = 0U;
     s_preparation_status = DOWNLOAD_PREPARATION_READY;
-    s_transfer_result = DOWNLOAD_RESULT_OK;
-    s_exit_result = DOWNLOAD_RESULT_OK;
 }
-void Download_Abort(void) { s_abort_count++; s_download_active = false; }
+void Download_Abort(void)
+{
+    s_abort_count++;
+    s_download_active = false;
+}
 download_result_t Download_Prepare(void) { return DOWNLOAD_RESULT_OK; }
 void Download_Poll(void) {}
 download_preparation_status_t Download_GetPreparationStatus(void)
@@ -94,209 +83,114 @@ download_result_t Download_Begin(uint32_t image_size)
 download_result_t Download_Transfer(uint8_t bsc, const uint8_t *payload,
                                     uint16_t length)
 {
-    (void)bsc;
     (void)payload;
-    return (length == 0U || length > DOWNLOAD_MAX_TRANSFER_PAYLOAD)
-               ? DOWNLOAD_RESULT_INCORRECT_LENGTH : s_transfer_result;
+    s_last_bsc = bsc;
+    return length == 0U ? DOWNLOAD_RESULT_INCORRECT_LENGTH : DOWNLOAD_RESULT_OK;
 }
-download_result_t Download_Exit(void) { return s_exit_result; }
+download_result_t Download_Exit(void) { return DOWNLOAD_RESULT_OK; }
 
-uds_read_did_result_t UDS_ReadDid_Build(uint16_t did,
-                                        uds_read_did_response_t *response)
+uds_read_did_result_t UDS_ReadDid_BuildPayload(
+    uint16_t did, uds_read_did_payload_t *payload)
 {
     if (did != DID_BOOT_VERSION)
     {
         return UDS_READ_DID_RESULT_OUT_OF_RANGE;
     }
-    response->data[0] = SID_READ_DATA_BY_IDENTIFIER_POS;
-    response->data[1] = (uint8_t)(did >> 8);
-    response->data[2] = (uint8_t)did;
-    response->data[3] = 0x42U;
-    response->length = 4U;
+    payload->data[0] = 0x42U;
+    payload->length = 1U;
     return UDS_READ_DID_RESULT_OK;
 }
 
-static void test_normal_requests_restart_s3(void)
+static void enter_programming_and_unlock(void)
 {
     static const uint8_t session[] = {0x10U, 0x02U};
     static const uint8_t seed[] = {0x27U, 0x01U};
     static const uint8_t key[] = {0x27U, 0x02U, 0x55U};
+
+    transact(1001U, session, sizeof(session));
+    assert(memcmp(s_response,
+                  (uint8_t[]){0x50U, 0x02U, 0x00U, 0x32U, 0x01U, 0xF4U},
+                  6U) == 0);
+    transact(1100U, seed, sizeof(seed));
+    assert(s_response_length == 6U && s_response[0] == 0x67U);
+    transact(1200U, key, sizeof(key));
+    assert(memcmp(s_response, (uint8_t[]){0x67U, 0x02U}, 2U) == 0);
+    assert(s_unlocked);
+}
+
+static void test_upstream_session_security_and_did(void)
+{
+    static const uint8_t seed[] = {0x27U, 0x01U};
+    static const uint8_t did[] = {0x22U, 0xF1U, 0xF0U};
+    static const uint8_t unsupported_did[] = {0x22U, 0xF1U, 0x80U};
+
+    UDS_Init(&(uds_transport_t){send_response, response_pending});
+    transact(100U, seed, sizeof(seed));
+    assert(memcmp(s_response, (uint8_t[]){0x7FU, 0x27U, 0x37U}, 3U) == 0);
+
+    enter_programming_and_unlock();
+    transact(1300U, seed, sizeof(seed));
+    assert(memcmp(s_response, (uint8_t[]){0x67U, 0x01U, 0x00U, 0x00U}, 4U) == 0);
+    transact(1400U, did, sizeof(did));
+    assert(memcmp(s_response, (uint8_t[]){0x62U, 0xF1U, 0xF0U, 0x42U}, 4U) == 0);
+    transact(1500U, unsupported_did, sizeof(unsupported_did));
+    assert(memcmp(s_response, (uint8_t[]){0x7FU, 0x22U, 0x31U}, 3U) == 0);
+}
+
+static void test_upstream_download_sequence(void)
+{
     static const uint8_t erase[] = {0x31U, 0x01U, 0xFFU, 0x00U};
     static const uint8_t erase_results[] = {0x31U, 0x03U, 0xFFU, 0x00U};
-    static const uint8_t download[] = {0x34U, 0x00U, 0x44U, 0, 0, 0, 0, 0, 0, 1, 0};
-    uint8_t download_with_sha[43] = {0};
-    static const uint8_t transfer[] = {0x36U, 0x01U, 0x42U};
+    static const uint8_t download[] = {
+        0x34U, 0x00U, 0x44U, 0, 0, 0, 0, 0, 0, 0, 2,
+    };
+    static const uint8_t block[] = {0x36U, 0x01U, 0xAAU, 0xBBU};
+    static const uint8_t duplicate_bsc[] = {0x36U, 0x01U, 0xAAU};
     static const uint8_t exit_request[] = {0x37U};
-    static const uint8_t reset[] = {0x11U, 0x01U};
-    static const uint8_t did[] = {0x22U, 0xF1U, 0xF0U};
-    static const uint8_t old_did[] = {0x22U, 0xF1U, 0x80U};
 
     UDS_Init(&(uds_transport_t){send_response, response_pending});
-    dispatch_at(0U, session, sizeof(session));
-    assert(s_response[0] == 0x50U);
-    dispatch_at(4000U, seed, sizeof(seed));
-    assert(s_response[0] == 0x67U);
-    dispatch_at(8000U, key, sizeof(key));
-    assert(s_unlocked);
-    dispatch_at(12000U, erase, sizeof(erase));
-    assert(s_response[0] == 0x71U);
-    s_preparation_status = DOWNLOAD_PREPARATION_PENDING;
-    dispatch_at(12001U, erase_results, sizeof(erase_results));
-    assert(s_response[2] == NRC_REQUEST_SEQUENCE_ERROR);
-    s_preparation_status = DOWNLOAD_PREPARATION_FAILED;
-    dispatch_at(12002U, erase_results, sizeof(erase_results));
-    assert(s_response[2] == NRC_GENERAL_PROGRAMMING_FAILURE);
-    s_preparation_status = DOWNLOAD_PREPARATION_READY;
-    dispatch_at(12003U, erase_results, sizeof(erase_results));
+    enter_programming_and_unlock();
+    transact(1300U, erase, sizeof(erase));
+    assert(memcmp(s_response, (uint8_t[]){0x71U, 0x01U, 0xFFU, 0x00U}, 4U) == 0);
+    transact(1400U, erase_results, sizeof(erase_results));
     assert(s_response_length == UDS_ERASE_MEMORY_RESULT_LEN);
-    assert(s_response[0] == 0x71U);
-    dispatch_at(16000U, download, sizeof(download));
-    assert(s_response_length == 4U);
+    transact(1500U, download, sizeof(download));
     assert(memcmp(s_response, (uint8_t[]){0x74U, 0x20U, 0x01U, 0x02U}, 4U) == 0);
-    memcpy(download_with_sha, download, sizeof(download));
-    dispatch_at(16001U, download_with_sha, sizeof(download_with_sha));
-    assert(s_response[2] == NRC_INCORRECT_MESSAGE_LENGTH);
-    dispatch_at(20000U, transfer, sizeof(transfer));
-    assert(s_response[0] == 0x76U);
-    dispatch_at(24000U, did, sizeof(did));
-    assert(s_response[0] == 0x62U);
-    dispatch_at(28000U, old_did, sizeof(old_did));
-    assert(s_response[0] == 0x7FU && s_response[2] == NRC_REQUEST_OUT_OF_RANGE);
-    UDS_Poll(33099U);
-    assert(s_unlocked);
-    UDS_Poll(33100U);
-    assert(!s_unlocked && s_abort_count == 1U);
-    dispatch_at(33101U, download, sizeof(download));
-    assert(s_response[2] == NRC_SERVICE_NOT_SUPPORTED_IN_ACTIVE_SESSION);
-    dispatch_at(33102U, seed, sizeof(seed));
-    assert(s_response[2] == NRC_SUBFUNCTION_NOT_SUPPORTED_IN_ACTIVE_SESSION);
-    dispatch_at(33103U, erase, sizeof(erase));
-    assert(s_response[2] == NRC_SUBFUNCTION_NOT_SUPPORTED_IN_ACTIVE_SESSION);
-    dispatch_at(33104U, reset, sizeof(reset));
-    assert(s_response[2] == NRC_SUBFUNCTION_NOT_SUPPORTED_IN_ACTIVE_SESSION);
-    dispatch_at(33105U, transfer, sizeof(transfer));
-    assert(s_response[2] == NRC_SERVICE_NOT_SUPPORTED_IN_ACTIVE_SESSION);
-    dispatch_at(33106U, exit_request, sizeof(exit_request));
-    assert(s_response[2] == NRC_SERVICE_NOT_SUPPORTED_IN_ACTIVE_SESSION);
-}
-
-static void test_supported_sessions_and_change_effects(void)
-{
-    static const uint8_t programming[] = {0x10U, SESSION_PROGRAMMING};
-    static const uint8_t default_session[] = {0x10U, SESSION_DEFAULT};
-    static const uint8_t unsupported[] = {0x10U, 0x03U};
-    static const uint8_t short_request[] = {0x10U};
-    static const uint8_t seed[] = {0x27U, 0x01U};
-    static const uint8_t key[] = {0x27U, 0x02U, 0x55U};
-    static const uint8_t download[] = {0x34U, 0x00U, 0x44U, 0, 0, 0, 0, 0, 0, 1, 0};
-
-    UDS_Init(&(uds_transport_t){send_response, response_pending});
-    dispatch_at(0U, short_request, sizeof(short_request));
-    assert(memcmp(s_response, (uint8_t[]){0x7FU, 0x10U, 0x13U}, 3U) == 0);
-    dispatch_at(1U, unsupported, sizeof(unsupported));
-    assert(memcmp(s_response, (uint8_t[]){0x7FU, 0x10U, 0x12U}, 3U) == 0);
-    dispatch_at(2U, programming, sizeof(programming));
-    assert(memcmp(s_response, (uint8_t[]){0x50U, 0x02U, 0x00U, 0x32U, 0x01U, 0xF4U}, 6U) == 0);
-    dispatch_at(3U, seed, sizeof(seed));
-    dispatch_at(4U, key, sizeof(key));
-    assert(s_unlocked);
-    dispatch_at(5U, download, sizeof(download));
-    assert(s_download_active);
-    dispatch_at(6U, programming, sizeof(programming));
-    assert(s_unlocked && s_download_active && s_abort_count == 0U);
-    dispatch_at(6U, unsupported, sizeof(unsupported));
-    assert(memcmp(s_response, (uint8_t[]){0x7FU, 0x10U, 0x12U}, 3U) == 0);
-    assert(s_unlocked && s_download_active && s_abort_count == 0U);
-    dispatch_at(7U, default_session, sizeof(default_session));
-    assert(memcmp(s_response, (uint8_t[]){0x50U, 0x01U, 0x00U, 0x32U, 0x01U, 0xF4U}, 6U) == 0);
-    assert(!s_unlocked && !s_download_active && s_abort_count == 1U);
-    dispatch_at(8U, programming, sizeof(programming));
-    dispatch_at(9U, download, sizeof(download));
-    assert(memcmp(s_response, (uint8_t[]){0x7FU, 0x34U, 0x33U}, 3U) == 0);
-    dispatch_at(10U, seed, sizeof(seed));
-    dispatch_at(11U, key, sizeof(key));
-    dispatch_at(12U, download, sizeof(download));
-    assert(s_response[0] == SID_REQUEST_DOWNLOAD_POS && s_download_active);
-}
-
-static void test_async_and_suppressed_responses(void)
-{
-    static const uint8_t session[] = {0x10U, 0x02U};
-    static const uint8_t did[] = {0x22U, 0xF1U, 0xF0U};
-    static const uint8_t unsupported[] = {0x99U};
-    static const uint8_t suppressed[] = {0x3EU, 0x80U};
-    static const uint8_t download[] = {0x34U, 0x00U, 0x44U, 0, 0, 0, 0, 0, 0, 1, 0};
-
-    UDS_Init(&(uds_transport_t){send_response, response_pending});
-    dispatch_at(0U, session, sizeof(session));
-    s_async_send = true;
-    dispatch_at(4000U, did, sizeof(did));
-    UDS_Poll(20000U);
-    assert(s_abort_count == 0U);
-    s_pending = false;
-    s_async_send = false;
-    UDS_Poll(20001U);
-    dispatch_at(24000U, unsupported, sizeof(unsupported));
-    assert(s_response[2] == NRC_SERVICE_NOT_SUPPORTED);
-    dispatch_at(28000U, suppressed, sizeof(suppressed));
-    assert(s_response_length == 0U);
-    dispatch_at(32000U, download, sizeof(download));
-    assert(s_response[2] == NRC_SECURITY_ACCESS_DENIED);
-    UDS_Poll(37100U);
-    assert(s_abort_count == 1U);
-}
-
-static void test_download_sequence_nrcs(void)
-{
-    static const uint8_t session[] = {0x10U, 0x02U};
-    static const uint8_t seed[] = {0x27U, 0x01U};
-    static const uint8_t key[] = {0x27U, 0x02U, 0x55U};
-    static const uint8_t erase[] = {0x31U, 0x01U, 0xFFU, 0x00U};
-    static const uint8_t download[] = {0x34U, 0x00U, 0x44U, 0, 0, 0, 0, 0, 0, 1, 0};
-    static const uint8_t transfer[] = {0x36U, 0x01U, 0x42U};
-    static const uint8_t exit_request[] = {0x37U};
-    uint8_t oversized[2U + DOWNLOAD_MAX_TRANSFER_PAYLOAD + 1U] = {0};
-
-    UDS_Init(&(uds_transport_t){send_response, response_pending});
-    dispatch_at(0U, session, sizeof(session));
-    dispatch_at(1U, seed, sizeof(seed));
-    dispatch_at(2U, key, sizeof(key));
-    s_exit_result = DOWNLOAD_RESULT_SEQUENCE_ERROR;
-    dispatch_at(3U, exit_request, sizeof(exit_request));
-    assert(memcmp(s_response, (uint8_t[]){0x7FU, 0x37U, 0x24U}, 3U) == 0);
-    dispatch_at(4U, erase, sizeof(erase));
-    dispatch_at(5U, download, sizeof(download));
-
-    s_transfer_result = DOWNLOAD_RESULT_TRANSFER_SUSPENDED;
-    dispatch_at(6U, transfer, sizeof(transfer));
-    assert(memcmp(s_response, (uint8_t[]){0x7FU, 0x36U, 0x71U}, 3U) == 0);
-    s_transfer_result = DOWNLOAD_RESULT_SEQUENCE_ERROR;
-    dispatch_at(7U, transfer, sizeof(transfer));
-    assert(memcmp(s_response, (uint8_t[]){0x7FU, 0x36U, 0x24U}, 3U) == 0);
-    s_transfer_result = DOWNLOAD_RESULT_WRONG_BLOCK_SEQUENCE;
-    dispatch_at(8U, transfer, sizeof(transfer));
-    assert(memcmp(s_response, (uint8_t[]){0x7FU, 0x36U, 0x73U}, 3U) == 0);
-
-    oversized[0] = SID_TRANSFER_DATA;
-    oversized[1] = 0x01U;
-    dispatch_at(9U, oversized, sizeof(oversized));
-    assert(memcmp(s_response, (uint8_t[]){0x7FU, 0x36U, 0x13U}, 3U) == 0);
-    s_transfer_result = DOWNLOAD_RESULT_OK;
-    dispatch_at(10U, transfer, sizeof(transfer));
+    transact(1600U, block, sizeof(block));
     assert(memcmp(s_response, (uint8_t[]){0x76U, 0x01U}, 2U) == 0);
+    assert(s_last_bsc == 0x01U);
+    transact(1700U, duplicate_bsc, sizeof(duplicate_bsc));
+    assert(memcmp(s_response, (uint8_t[]){0x7FU, 0x36U, 0x24U}, 3U) == 0);
+    transact(1800U, exit_request, sizeof(exit_request));
+    assert(memcmp(s_response, (uint8_t[]){0x7FU, 0x37U, 0x70U}, 3U) == 0);
 
-    dispatch_at(11U, exit_request, sizeof(exit_request));
-    assert(memcmp(s_response, (uint8_t[]){0x7FU, 0x37U, 0x24U}, 3U) == 0);
-    s_exit_result = DOWNLOAD_RESULT_OK;
-    dispatch_at(12U, exit_request, sizeof(exit_request));
+    transact(1900U, erase, sizeof(erase));
+    transact(2000U, download, sizeof(download));
+    transact(2100U, block, sizeof(block));
+    transact(2200U, exit_request, sizeof(exit_request));
     assert(s_response_length == 1U && s_response[0] == 0x77U);
+}
+
+static void test_only_session_control_and_tester_present_refresh_s3(void)
+{
+    static const uint8_t did[] = {0x22U, 0xF1U, 0xF0U};
+    static const uint8_t download[] = {
+        0x34U, 0x00U, 0x44U, 0, 0, 0, 0, 0, 0, 0, 1,
+    };
+
+    UDS_Init(&(uds_transport_t){send_response, response_pending});
+    enter_programming_and_unlock();
+    transact(5000U, did, sizeof(did));
+    UDS_Poll(6102U);
+    assert(!s_unlocked);
+    transact(6200U, download, sizeof(download));
+    assert(memcmp(s_response, (uint8_t[]){0x7FU, 0x34U, 0x7FU}, 3U) == 0);
 }
 
 int main(void)
 {
-    test_normal_requests_restart_s3();
-    test_supported_sessions_and_change_effects();
-    test_async_and_suppressed_responses();
-    test_download_sequence_nrcs();
+    test_upstream_session_security_and_did();
+    test_upstream_download_sequence();
+    test_only_session_control_and_tester_present_refresh_s3();
     return 0;
 }

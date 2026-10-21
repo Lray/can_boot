@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(gateway_ota C)
 
-set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
@@ -19,8 +19,11 @@ set(GATEWAY_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/security
     ${CMAKE_CURRENT_SOURCE_DIR}/src/package
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ota
+    ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/iso14229
     ${CMAKE_CURRENT_SOURCE_DIR}/..
 )
+
+add_compile_definitions(UDS_TP_MTU=512)
 
 set(GATEWAY_CANOPEN_LINUX_DIR
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/CANopenLinux
@@ -62,12 +65,12 @@ target_include_directories(gateway-byte-order PUBLIC
 target_compile_definitions(gateway-byte-order PUBLIC _DEFAULT_SOURCE)
 
 add_library(gateway-core STATIC
+    ../third_party/iso14229/iso14229.c
     src/util/util.c
     src/ota/transfer.c
     src/ota/ota_snapshot.c
     src/package/package_metadata.c
     src/uds/uds_client.c
-    src/uds/uds_transaction.c
     src/transport/isotp_channel.c
 )
 

@@ -19,6 +19,7 @@ typedef struct
     size_t response_len[MAX_EXPECTED_TRANSACTIONS];
     bool recv_timeout[MAX_EXPECTED_TRANSACTIONS];
     bool send_failure[MAX_EXPECTED_TRANSACTIONS];
+    bool response_available;
     int send_count;
     int recv_count;
 } FakeTransport;
@@ -33,6 +34,7 @@ static int fake_send(void *ctx, const uint8_t *data, size_t len)
     assert(len == fake->expected_send_len[index]);
     assert(memcmp(data, fake->expected_send[index], len) == 0);
     fake->send_count++;
+    fake->response_available = !fake->send_failure[index];
     return fake->send_failure[index] ? -1 : 0;
 }
 
@@ -43,9 +45,14 @@ static int fake_recv(void *ctx,
                      uint32_t timeout_ms)
 {
     FakeTransport *fake = (FakeTransport *)ctx;
-    int index = fake->recv_count;
+    int index;
 
     (void)timeout_ms;
+    if (!fake->response_available)
+    {
+        return -1;
+    }
+    index = fake->recv_count;
     assert(index >= 0);
     assert(index < (int)MAX_EXPECTED_TRANSACTIONS);
     fake->recv_count++;
@@ -56,19 +63,17 @@ static int fake_recv(void *ctx,
     assert(fake->response_len[index] <= data_cap);
     memcpy(data, fake->responses[index], fake->response_len[index]);
     *data_len = fake->response_len[index];
+    fake->response_available = false;
     return 0;
 }
 
-static UdsClient make_client(FakeTransport *fake)
+static void make_client(FakeTransport *fake, UdsClient *client)
 {
     static const TransportOps ops = {
         fake_send,
         fake_recv,
     };
-    UdsClient client = {0};
-
-    uds_client_init(&client, &ops, fake);
-    return client;
+    uds_client_init(client, &ops, fake);
 }
 
 static void put_u32_be(uint8_t *data, uint32_t value)
@@ -132,7 +137,7 @@ static void expect_erase_memory_results_pending(FakeTransport *fake, int index)
     fake->expected_send_len[index] = UDS_ROUTINE_CONTROL_REQUEST_LEN;
     response[0] = NEGATIVE_RESPONSE_SID;
     response[1] = SID_ROUTINE_CONTROL;
-    response[2] = NRC_REQUEST_SEQUENCE_ERROR;
+    response[2] = UDS_NRC_RequestSequenceError;
     fake->response_len[index] = UDS_NEGATIVE_RESPONSE_LENGTH;
 }
 
@@ -221,7 +226,9 @@ static int expect_transfer_range(FakeTransport *fake,
 static void test_uds_download_primitives(void)
 {
     FakeTransport fake = {0};
-    UdsClient client = make_client(&fake);
+    UdsClient client;
+
+    make_client(&fake, &client);
     uint16_t max_block_len = 0u;
     uint8_t block[TRANSFER_BLOCK_PAYLOAD] = {0};
 
@@ -242,7 +249,9 @@ static void test_uds_download_primitives(void)
 static void test_uds_erase_memory_primitives(void)
 {
     FakeTransport fake = {0};
-    UdsClient client = make_client(&fake);
+    UdsClient client;
+
+    make_client(&fake, &client);
     bool complete = false;
     int rc = 0;
 
@@ -252,8 +261,8 @@ static void test_uds_erase_memory_primitives(void)
 
     assert(uds_erase_memory(&client) == 0);
     rc = uds_erase_memory_results(&client, &complete);
-    assert(rc == UDS_ERR_NEGATIVE_RESPONSE);
-    assert(client.last_nrc == NRC_REQUEST_SEQUENCE_ERROR);
+    assert(rc == UDS_NRC_RequestSequenceError);
+    assert(client.last_nrc == UDS_NRC_RequestSequenceError);
     assert(!complete);
     assert(uds_erase_memory_results(&client, &complete) == 0);
     assert(complete);
@@ -262,73 +271,84 @@ static void test_uds_erase_memory_primitives(void)
 static void test_uds_erase_memory_failure_nrc(void)
 {
     FakeTransport fake = {0};
-    UdsClient client = make_client(&fake);
+    UdsClient client;
+
+    make_client(&fake, &client);
     bool complete = false;
     int rc = 0;
 
     expect_erase_memory_start(&fake, 0);
     expect_erase_memory_results_pending(&fake, 1);
-    fake.responses[1][2] = NRC_GENERAL_PROGRAMMING_FAILURE;
+    fake.responses[1][2] = UDS_NRC_GeneralProgrammingFailure;
 
     assert(uds_erase_memory(&client) == 0);
     rc = uds_erase_memory_results(&client, &complete);
-    assert(rc == UDS_ERR_NEGATIVE_RESPONSE);
-    assert(client.last_nrc == NRC_GENERAL_PROGRAMMING_FAILURE);
+    assert(rc == UDS_NRC_GeneralProgrammingFailure);
+    assert(client.last_nrc == UDS_NRC_GeneralProgrammingFailure);
     assert(!complete);
 }
 
 static void test_uds_request_download_negative_response(void)
 {
     FakeTransport fake = {0};
-    UdsClient client = make_client(&fake);
+    UdsClient client;
+
+    make_client(&fake, &client);
     uint16_t max_block_len = 0u;
     expect_request_download(&fake, 0, 0U, 258u);
     fake.responses[0][0] = NEGATIVE_RESPONSE_SID;
     fake.responses[0][1] = SID_REQUEST_DOWNLOAD;
-    fake.responses[0][2] = NRC_REQUEST_OUT_OF_RANGE;
+    fake.responses[0][2] = UDS_NRC_RequestOutOfRange;
     fake.response_len[0] = 3U;
 
     assert(uds_request_download(&client, 0U, &max_block_len) ==
-           UDS_ERR_NEGATIVE_RESPONSE);
-    assert(client.last_nrc == NRC_REQUEST_OUT_OF_RANGE);
+           UDS_NRC_RequestOutOfRange);
+    assert(client.last_nrc == UDS_NRC_RequestOutOfRange);
 }
 
-static void test_uds_request_download_length_mismatch(void)
+static void test_uds_request_download_accepts_upstream_optional_bytes(void)
 {
     FakeTransport fake = {0};
-    UdsClient client = make_client(&fake);
+    UdsClient client;
+
+    make_client(&fake, &client);
     uint16_t max_block_len = 0u;
     expect_request_download(&fake, 0, 512U, 258u);
     fake.response_len[0] = 5U;
 
-    assert(uds_request_download(&client, 512U, &max_block_len) ==
-           UDS_ERR_MALFORMED_RESPONSE);
+    assert(uds_request_download(&client, 512U, &max_block_len) == UDS_OK);
+    assert(max_block_len == 258U);
 }
 
 static void test_uds_transfer_wrong_block_sequence_nrc(void)
 {
     FakeTransport fake = {0};
-    UdsClient client = make_client(&fake);
+    UdsClient client;
+
+    make_client(&fake, &client);
     uint8_t block[TRANSFER_BLOCK_PAYLOAD] = {0};
 
     expect_transfer(&fake, 0, 0x02U, block, sizeof(block));
     fake.responses[0][0] = NEGATIVE_RESPONSE_SID;
     fake.responses[0][1] = SID_TRANSFER_DATA;
-    fake.responses[0][2] = NRC_WRONG_BLOCK_SEQUENCE_COUNTER;
+    fake.responses[0][2] = UDS_NRC_RequestSequenceError;
     fake.response_len[0] = 3U;
 
+    client.max_block_length = 258U;
     assert(uds_transfer_data(&client,
                              0x02U,
                              block,
                              sizeof(block)) ==
-           UDS_ERR_NEGATIVE_RESPONSE);
-    assert(client.last_nrc == NRC_WRONG_BLOCK_SEQUENCE_COUNTER);
+           UDS_NRC_RequestSequenceError);
+    assert(client.last_nrc == UDS_NRC_RequestSequenceError);
 }
 
 static void test_execute_fresh_transfer(void)
 {
     FakeTransport fake = {0};
-    UdsClient client = make_client(&fake);
+    UdsClient client;
+
+    make_client(&fake, &client);
     uint8_t image[TEST_IMAGE_SIZE] = {0};
     int next_index = 0;
 
@@ -351,7 +371,9 @@ static void test_execute_fresh_transfer(void)
 static void test_execute_uses_ecu_block_length(void)
 {
     FakeTransport fake = {0};
-    UdsClient client = make_client(&fake);
+    UdsClient client;
+
+    make_client(&fake, &client);
     uint8_t image[130] = {0};
     int next_index = 0;
 
@@ -369,7 +391,9 @@ static void test_execute_uses_ecu_block_length(void)
 static void test_execute_caps_large_ecu_block_length(void)
 {
     FakeTransport fake = {0};
-    UdsClient client = make_client(&fake);
+    UdsClient client;
+
+    make_client(&fake, &client);
     uint8_t image[300] = {0};
     int next_index = 0;
 
@@ -388,63 +412,25 @@ static void test_execute_caps_large_ecu_block_length(void)
 static void test_execute_rejects_no_payload_capacity(void)
 {
     FakeTransport fake = {0};
-    UdsClient client = make_client(&fake);
+    UdsClient client;
+
+    make_client(&fake, &client);
     uint8_t image[1] = {0};
 
     expect_erase_memory_start(&fake, 0);
     expect_erase_memory_results(&fake, 1);
     expect_request_download(&fake, 2, sizeof(image), 2u);
 
-    assert(transfer_execute(&client, sizeof(image), image) ==
-           TRANSFER_ERR_BLOCK_PAYLOAD);
+    assert(transfer_execute(&client, sizeof(image), image) == UDS_ERR_BUFSIZ);
     assert(fake.send_count == 3);
-}
-
-static void test_execute_retries_same_block_after_timeout(void)
-{
-    FakeTransport fake = {0};
-    UdsClient client = make_client(&fake);
-    uint8_t image[128] = {0};
-
-    fill_image(image, sizeof(image));
-    expect_erase_memory_start(&fake, 0);
-    expect_erase_memory_results(&fake, 1);
-    expect_request_download(&fake, 2, sizeof(image), 66u);
-    expect_transfer(&fake, 3, 0x01u, image, 64u);
-    fake.recv_timeout[3] = true;
-    expect_transfer(&fake, 4, 0x01u, image, 64u);
-    expect_transfer(&fake, 5, 0x02u, image + 64u, 64u);
-    expect_transfer_exit(&fake, 6);
-
-    assert(transfer_execute(&client, sizeof(image), image) == 0);
-    assert(fake.send_count == 7);
-    assert(fake.recv_count == 7);
-}
-
-static void test_execute_stops_after_two_transfer_timeouts(void)
-{
-    FakeTransport fake = {0};
-    UdsClient client = make_client(&fake);
-    uint8_t image[128] = {0};
-
-    fill_image(image, sizeof(image));
-    expect_erase_memory_start(&fake, 0);
-    expect_erase_memory_results(&fake, 1);
-    expect_request_download(&fake, 2, sizeof(image), 66u);
-    expect_transfer(&fake, 3, 0x01u, image, 64u);
-    fake.recv_timeout[3] = true;
-    expect_transfer(&fake, 4, 0x01u, image, 64u);
-    fake.recv_timeout[4] = true;
-
-    assert(transfer_execute(&client, sizeof(image), image) == UDS_ERR_TIMEOUT);
-    assert(fake.send_count == 5);
-    assert(fake.recv_count == 5);
 }
 
 static void test_execute_does_not_retry_wrong_bsc_nrc(void)
 {
     FakeTransport fake = {0};
-    UdsClient client = make_client(&fake);
+    UdsClient client;
+
+    make_client(&fake, &client);
     uint8_t image[128] = {0};
 
     fill_image(image, sizeof(image));
@@ -454,12 +440,12 @@ static void test_execute_does_not_retry_wrong_bsc_nrc(void)
     expect_transfer(&fake, 3, 0x01u, image, 64u);
     fake.responses[3][0] = NEGATIVE_RESPONSE_SID;
     fake.responses[3][1] = SID_TRANSFER_DATA;
-    fake.responses[3][2] = NRC_WRONG_BLOCK_SEQUENCE_COUNTER;
+    fake.responses[3][2] = UDS_NRC_RequestSequenceError;
     fake.response_len[3] = UDS_NEGATIVE_RESPONSE_LENGTH;
 
     assert(transfer_execute(&client, sizeof(image), image) ==
-           UDS_ERR_NEGATIVE_RESPONSE);
-    assert(client.last_nrc == NRC_WRONG_BLOCK_SEQUENCE_COUNTER);
+           UDS_NRC_RequestSequenceError);
+    assert(client.last_nrc == UDS_NRC_RequestSequenceError);
     assert(fake.send_count == 4);
     assert(fake.recv_count == 4);
 }
@@ -467,22 +453,27 @@ static void test_execute_does_not_retry_wrong_bsc_nrc(void)
 static void test_transfer_does_not_retry_send_failure(void)
 {
     FakeTransport fake = {0};
-    UdsClient client = make_client(&fake);
+    UdsClient client;
+
+    make_client(&fake, &client);
     uint8_t block[1] = {0x5au};
 
     expect_transfer(&fake, 0, 0x01u, block, sizeof(block));
     fake.send_failure[0] = true;
 
+    client.max_block_length = 258U;
     assert(uds_transfer_data(&client, 0x01u, block, sizeof(block)) ==
-           UDS_ERR_TRANSPORT);
+           UDS_ERR_TPORT);
     assert(fake.send_count == 1);
     assert(fake.recv_count == 0);
 }
 
-static void test_execute_retries_rollover_block(void)
+static void test_execute_rolls_block_sequence_counter(void)
 {
     FakeTransport fake = {0};
-    UdsClient client = make_client(&fake);
+    UdsClient client;
+
+    make_client(&fake, &client);
     uint8_t image[256] = {0};
     int next_index = 3;
 
@@ -495,11 +486,6 @@ static void test_execute_retries_rollover_block(void)
         uint8_t sequence = (uint8_t)(block + 1u);
 
         expect_transfer(&fake, next_index++, sequence, image + block, 1u);
-        if (sequence == 0xFFu)
-        {
-            fake.recv_timeout[next_index - 1] = true;
-            expect_transfer(&fake, next_index++, sequence, image + block, 1u);
-        }
     }
     expect_transfer_exit(&fake, next_index);
 
@@ -514,16 +500,14 @@ int main(void)
     test_uds_erase_memory_primitives();
     test_uds_erase_memory_failure_nrc();
     test_uds_request_download_negative_response();
-    test_uds_request_download_length_mismatch();
+    test_uds_request_download_accepts_upstream_optional_bytes();
     test_uds_transfer_wrong_block_sequence_nrc();
     test_execute_fresh_transfer();
     test_execute_uses_ecu_block_length();
     test_execute_caps_large_ecu_block_length();
     test_execute_rejects_no_payload_capacity();
-    test_execute_retries_same_block_after_timeout();
-    test_execute_stops_after_two_transfer_timeouts();
     test_execute_does_not_retry_wrong_bsc_nrc();
     test_transfer_does_not_retry_send_failure();
-    test_execute_retries_rollover_block();
+    test_execute_rolls_block_sequence_counter();
     return 0;
 }

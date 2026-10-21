@@ -23,7 +23,6 @@ typedef struct
     download_state_t state;
     uint8_t target_slot;
     uint8_t next_block_sequence_counter;
-    uint16_t previous_block_length;
     uint32_t received;
     uint32_t image_size;
 } download_session_t;
@@ -177,7 +176,6 @@ download_result_t Download_Transfer(uint8_t block_sequence_counter,
     const struct flash_area *area = NULL;
     uint32_t remaining = 0U;
     uint32_t next_received = 0U;
-    uint8_t previous[DOWNLOAD_MAX_TRANSFER_PAYLOAD];
     int area_id = -1;
 
     if (s_download.state != DOWNLOAD_STATE_TRANSFERRING)
@@ -189,48 +187,24 @@ download_result_t Download_Transfer(uint8_t block_sequence_counter,
     {
         return DOWNLOAD_RESULT_INCORRECT_LENGTH;
     }
-    /* 仅放行期望 BSC；有上一块记录时，也放行上一 BSC 供后续校验。 */
-    if (block_sequence_counter != s_download.next_block_sequence_counter &&
-        (s_download.previous_block_length == 0U ||
-         block_sequence_counter !=
-             (uint8_t)(s_download.next_block_sequence_counter - 1U)))
+    if (block_sequence_counter != s_download.next_block_sequence_counter)
     {
         return DOWNLOAD_RESULT_WRONG_BLOCK_SEQUENCE;
     }
-
-    if (block_sequence_counter == s_download.next_block_sequence_counter)
+    if (s_download.received == s_download.image_size)
     {
-        if (s_download.received == s_download.image_size)
-        {
-            return DOWNLOAD_RESULT_SEQUENCE_ERROR;
-        }
-        remaining = s_download.image_size - s_download.received;
-        if (length > remaining)
-        {
-            return DOWNLOAD_RESULT_TRANSFER_SUSPENDED;
-        }
+        return DOWNLOAD_RESULT_SEQUENCE_ERROR;
     }
-    else if (length != s_download.previous_block_length)
+    remaining = s_download.image_size - s_download.received;
+    if (length > remaining)
     {
-        return DOWNLOAD_RESULT_WRONG_BLOCK_SEQUENCE;
+        return DOWNLOAD_RESULT_TRANSFER_SUSPENDED;
     }
 
     area_id = flash_area_id_from_multi_image_slot(0, (int)s_download.target_slot);
     if ((area_id < 0) || (flash_area_open((uint8_t)area_id, &area) != 0))
     {
         return DOWNLOAD_RESULT_OUT_OF_RANGE;
-    }
-    if (block_sequence_counter != s_download.next_block_sequence_counter)
-    {
-        int read_result = flash_area_read(area, s_download.received - length,
-                                          previous, length);
-        flash_area_close(area);
-        if (read_result != 0)
-        {
-            return DOWNLOAD_RESULT_PROGRAMMING_FAILURE;
-        }
-        return memcmp(previous, payload, length) == 0
-                   ? DOWNLOAD_RESULT_OK : DOWNLOAD_RESULT_WRONG_BLOCK_SEQUENCE;
     }
     if (flash_area_write(area, s_download.received, payload, length) != 0)
     {
@@ -241,7 +215,6 @@ download_result_t Download_Transfer(uint8_t block_sequence_counter,
 
     next_received = s_download.received + length;
     s_download.received = next_received;
-    s_download.previous_block_length = length;
     s_download.state = DOWNLOAD_STATE_TRANSFERRING;
     s_download.next_block_sequence_counter =
         (uint8_t)(s_download.next_block_sequence_counter + 1U);

@@ -30,21 +30,19 @@ int main(void)
         DID_BOOT_VERSION, DID_APP_VERSION, DID_UPDATER_VERSION,
         DID_ACTIVE_SLOT, DID_CONFIRM_RESULT, DID_FACTORY_IDENTITY,
     };
-    uint8_t data[UDS_READ_DID_RESPONSE_MAX_SIZE] = {0};
-    uds_read_did_response_t response = {data, sizeof(data), 0U};
+    uint8_t data[UDS_READ_DID_PAYLOAD_MAX_SIZE] = {0};
+    uds_read_did_payload_t payload = {data, sizeof(data), 0U};
 
     for (uint16_t index = 0U; index < 6U; index++)
     {
         assert(project_dids[index] == (uint16_t)(0xF1F0U + index));
-        assert(UDS_ReadDid_Build(project_dids[index], &response) ==
+        assert(UDS_ReadDid_BuildPayload(project_dids[index], &payload) ==
                UDS_READ_DID_RESULT_OK);
-        assert(data[0] == SID_READ_DATA_BY_IDENTIFIER_POS);
-        assert(data[1] == 0xF1U && data[2] == (uint8_t)(0xF0U + index));
-        assert(response.length > 3U);
+        assert(payload.length > 0U);
     }
     for (uint16_t did = 0xF180U; did <= 0xF182U; did++)
     {
-        assert(UDS_ReadDid_Build(did, &response) ==
+        assert(UDS_ReadDid_BuildPayload(did, &payload) ==
                UDS_READ_DID_RESULT_OUT_OF_RANGE);
     }
     return 0;

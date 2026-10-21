@@ -6,6 +6,10 @@
 
 ## 当前实现
 
+- UDS server 直接采用未修改的 [`driftregion/iso14229` 0.11.0](../../third_party/iso14229/UPSTREAM.md)，
+  对应提交 `8a7eb23d6ab9d52f66ce36b07ba456613709c78e`。`uds_server.c` 只负责把现有
+  ISO-TP 通道接到上游 `UDSServer_t`，并在事件回调中实现本项目的 DID、Token 验证、
+  inactive-slot 下载和复位策略。
 - ISO-TP 状态机直接采用 [`SimonCahill/isotp-c` v1.8.0](../ThirdParty/isotp-c/UPSTREAM.md)，
   对应提交 `abb9e552df0e7ca0148c146124795341d57124fe`；第三方运行时源码不作修改，
   STM32 适配仅实现 CAN 发送、毫秒分辨率的微秒单位时钟和调试三个上游端口函数；
@@ -78,7 +82,10 @@ app version、updater version、active slot、confirm result 和出厂身份
 （`DID_FACTORY_IDENTITY`，`0xF1F5`）；
 `F180`~`F182` 不承载这些项目数据。
 
-S3Server 在完整诊断请求的最终响应发送完成后重启；抑制正响应时在服务完成后重启。
-普通 `0x22/0x27/0x31/0x34/0x36/0x37` 与不支持的 SID 的负响应也维持会话。
-S3 超时返回默认会话、锁定 SecurityAccess 并终止当前下载事务；已写入 Flash 的字节不回滚。
-重复上一 BSC 且 Flash 内容相同的 `0x36` 返回相同的 `76 <BSC>`，不再次写入。
+S3Server 采用上游默认值 5100 ms，并按上游状态机只由 `0x10` 和 `0x3E`
+刷新。S3 超时返回默认会话、锁定 SecurityAccess 并终止当前下载事务；已写入 Flash
+的字节不回滚。SecurityAccess 使用上游的 1000 ms 启动延时和失败后延时；已解锁时
+上游返回两个零字节 seed。
+
+`0x36` 的 BSC 必须严格等于上游期望值。重复或跳号返回 NRC `0x24`，同时上游终止
+当前 transfer；必须重新执行擦除和 `0x34`，Gateway 不重发超时块。

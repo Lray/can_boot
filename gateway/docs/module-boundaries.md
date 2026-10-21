@@ -109,48 +109,27 @@ Rules:
 - UDS code must not open Linux sockets directly.
 - SocketCAN details stay below this layer.
 
-## UDS Transaction Engine
+## UDS Client
 
 Owner:
 
-- `src/uds/uds_transaction.h`
-- `src/uds/uds_transaction.c`
-
-Responsibility:
-
-- one request/response transaction over injected transport callbacks
-- P2/P2* deadlines, `0x78 ResponsePending`, NRC framing, response capture, and
-  the transaction-wide deadline
-
-Rules:
-
-- This module owns generic transaction mechanics only.
-- Session semantics, DID semantics, and OTA policy stay in their callers.
-- It must not depend on concrete SocketCAN or Linux ISO-TP implementations.
-
-## UDS Client
-
-Future owner:
-
-- `src/diag_client.h`
-- `src/diag_client.c`
-- `third_party/iso14229/`
-Current minimal UDS owner:
-
 - `src/uds/uds_client.h`
 - `src/uds/uds_client.c`
+- `../third_party/iso14229/iso14229.c`
+- `../third_party/iso14229/iso14229.h`
 
 Responsibility:
 
-- trimmed `driftregion/iso14229` client integration
-- `0x10`, `0x3E`, `0x22`, then OTA services after minimal UDS
-- NRC and `0x78 ResponsePending` handling
+- bind the unmodified upstream `UDSClient_t` to `TransportOps`
+- expose the typed services required by diagnosis and OTA
+- enforce the updater-wide deadline and product response payload checks
 
 Rules:
 
 - UDS client depends on transport callbacks, not on concrete SocketCAN or
   Linux ISO-TP socket details.
-- OTA policy stays outside the vendored library.
+- P2/P2*, standard NRC, `0x78` and request state belong to upstream.
+- OTA policy stays outside the vendored library and adapter.
 - Vendored files are not the place for gateway retry, package, or
   progress behavior.
 

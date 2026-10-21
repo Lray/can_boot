@@ -28,17 +28,26 @@ int security_access_unlock(UdsClient *client, SecurityTokenTee_t *token_tee)
         return SECURITY_ERR_INVALID_ARG;
     }
     rc = uds_security_request_seed(client, seed, sizeof(seed), &seed_len);
-    if (rc == 0 && seed_len == SECURITY_ACCESS_SEED_SIZE)
+    if (rc == 0)
     {
         bool already_unlocked = true;
+
+        if (seed_len == 0u)
+        {
+            rc = UDS_ERR_RESP_TOO_SHORT;
+        }
         for (size_t index = 0u; index < seed_len; index++)
         {
             already_unlocked = already_unlocked && seed[index] == 0u;
         }
-        if (already_unlocked)
+        if (rc == 0 && already_unlocked)
         {
             secure_zero(seed, sizeof(seed));
             return 0;
+        }
+        if (rc == 0 && seed_len != SECURITY_ACCESS_SEED_SIZE)
+        {
+            rc = UDS_ERR_RESP_TOO_SHORT;
         }
     }
     if (rc == 0)

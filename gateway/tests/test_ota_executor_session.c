@@ -10,7 +10,7 @@
 
 static unsigned int s_session_count;
 static unsigned int s_security_count;
-static int s_security_result = UDS_ERR_NEGATIVE_RESPONSE;
+static int s_security_result = UDS_NRC_SecurityAccessDenied;
 static McuSnapshot_t s_before;
 static McuSnapshot_t s_after;
 

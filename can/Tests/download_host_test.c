@@ -231,7 +231,7 @@ static void test_full_transfer_flow(void)
     assert(Download_Exit() == DOWNLOAD_RESULT_SEQUENCE_ERROR);
 }
 
-static void test_repeated_prepare_is_rejected(void)
+static void test_repeated_block_is_rejected(void)
 {
     uint8_t block[DOWNLOAD_MAX_TRANSFER_PAYLOAD] = {0x6CU};
     uint8_t changed[DOWNLOAD_MAX_TRANSFER_PAYLOAD] = {0x6DU};
@@ -243,7 +243,8 @@ static void test_repeated_prepare_is_rejected(void)
     assert(Download_Begin(2U * DOWNLOAD_MAX_TRANSFER_PAYLOAD) == DOWNLOAD_RESULT_OK);
 
     assert(Download_Transfer(1U, block, sizeof(block)) == DOWNLOAD_RESULT_OK);
-    assert(Download_Transfer(1U, block, sizeof(block)) == DOWNLOAD_RESULT_OK);
+    assert(Download_Transfer(1U, block, sizeof(block)) ==
+           DOWNLOAD_RESULT_WRONG_BLOCK_SEQUENCE);
     assert(s_write_count == 1U);
     assert(Download_Transfer(1U, changed, sizeof(changed)) ==
            DOWNLOAD_RESULT_WRONG_BLOCK_SEQUENCE);
@@ -282,7 +283,8 @@ static void test_transfer_memory_size_limits(void)
     assert(Download_Transfer(3U,
                              block,
                              1U) == DOWNLOAD_RESULT_SEQUENCE_ERROR);
-    assert(Download_Transfer(2U, block, 44U) == DOWNLOAD_RESULT_OK);
+    assert(Download_Transfer(2U, block, 44U) ==
+           DOWNLOAD_RESULT_WRONG_BLOCK_SEQUENCE);
     assert(s_write_count == 2U);
     assert(Download_Transfer(2U, changed, 44U) ==
            DOWNLOAD_RESULT_WRONG_BLOCK_SEQUENCE);
@@ -327,19 +329,22 @@ static void test_rollover_and_abort(void)
         if (index == 256U)
         {
             assert(bsc == 0U);
-            assert(Download_Transfer(bsc, block, sizeof(block)) == DOWNLOAD_RESULT_OK);
+            assert(Download_Transfer(bsc, block, sizeof(block)) ==
+                   DOWNLOAD_RESULT_WRONG_BLOCK_SEQUENCE);
             assert(s_write_count == 256U);
         }
         if (index == 257U)
         {
             assert(bsc == 1U);
-            assert(Download_Transfer(bsc, block, sizeof(block)) == DOWNLOAD_RESULT_OK);
+            assert(Download_Transfer(bsc, block, sizeof(block)) ==
+                   DOWNLOAD_RESULT_WRONG_BLOCK_SEQUENCE);
             assert(s_write_count == 257U);
             assert(Download_Transfer(2U, block, 1U) == DOWNLOAD_RESULT_SEQUENCE_ERROR);
         }
         if (index == 255U)
         {
-            assert(Download_Transfer(bsc, block, sizeof(block)) == DOWNLOAD_RESULT_OK);
+            assert(Download_Transfer(bsc, block, sizeof(block)) ==
+                   DOWNLOAD_RESULT_WRONG_BLOCK_SEQUENCE);
             assert(s_write_count == 255U);
         }
     }
@@ -358,7 +363,7 @@ static void test_rollover_and_abort(void)
 int main(void)
 {
     test_full_transfer_flow();
-    test_repeated_prepare_is_rejected();
+    test_repeated_block_is_rejected();
     test_transfer_memory_size_limits();
     test_new_prepare_requires_reset();
     test_begin_after_exit_is_rejected();

@@ -7,8 +7,8 @@ cmake_minimum_required(VERSION 3.22)
 # User is free to modify the file as much as necessary
 #
 
-# The generated Cube/HAL sources use C99 constructs but do not require C11.
-set(CMAKE_C_STANDARD 99)
+# driftregion/iso14229 uses C11 static assertions in its official amalgamation.
+set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
@@ -103,7 +103,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     transport/isotp_stm32.c
     transport/ulog_can.c
     transport/ulog_can_wire.c
-    uds/uds_msg.c
+    ../third_party/iso14229/iso14229.c
     uds/uds_read_did.c
     uds/uds_server.c
     watchdog/watchdog.c
@@ -117,6 +117,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/identity
     ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/CANopenNode
     ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/CanOpenSTM32/CANopenNode_STM32
+    ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/iso14229
     ${CMAKE_CURRENT_SOURCE_DIR}/security
     ${CMAKE_CURRENT_SOURCE_DIR}/transport
     ${CMAKE_CURRENT_SOURCE_DIR}/uds
@@ -125,7 +126,9 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
 
 # Add project symbols (macros)
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user defined symbols
+    _POSIX_C_SOURCE=200809L
+    UDS_SYS=UDS_SYS_CUSTOM
+    UDS_TP_MTU=512
 )
 
 # Remove wrong libob.a library dependency when using cpp files

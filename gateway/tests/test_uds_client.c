@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -8,572 +9,246 @@
 #include "uds_client.h"
 #include "util.h"
 
-#define FAKE_RESPONSE_CAPACITY (UDS_RESPONSE_PENDING_MAX_COUNT + 2u)
+#define FAKE_CAPACITY 16U
 
-typedef struct {
-    uint8_t expected_send[300];
-    size_t expected_send_len;
-    uint8_t responses[FAKE_RESPONSE_CAPACITY][700];
-    size_t response_lens[FAKE_RESPONSE_CAPACITY];
-    uint32_t response_ready_after_ms[FAKE_RESPONSE_CAPACITY];
-    uint32_t recv_timeouts[FAKE_RESPONSE_CAPACITY];
-    int send_count;
-    int recv_count;
-} FakeTransport_t;
+typedef struct
+{
+    uint8_t expected_send[FAKE_CAPACITY][UDS_TP_MTU];
+    size_t expected_send_len[FAKE_CAPACITY];
+    uint8_t response[FAKE_CAPACITY][UDS_TP_MTU];
+    size_t response_len[FAKE_CAPACITY];
+    bool send_failure[FAKE_CAPACITY];
+    bool response_available;
+    size_t send_count;
+    size_t recv_count;
+} FakeTransport;
 
 static int fake_send(void *ctx, const uint8_t *data, size_t len)
 {
-    FakeTransport_t *fake = (FakeTransport_t *)ctx;
+    FakeTransport *fake = ctx;
+    size_t index = fake->send_count++;
 
-    assert(len == fake->expected_send_len);
-    assert(memcmp(data, fake->expected_send, len) == 0);
-    fake->send_count++;
-    return 0;
+    assert(index < FAKE_CAPACITY);
+    assert(len == fake->expected_send_len[index]);
+    assert(memcmp(data, fake->expected_send[index], len) == 0);
+    fake->response_available = !fake->send_failure[index];
+    return fake->send_failure[index] ? -1 : 0;
 }
 
-static int fake_recv(void *ctx, uint8_t *data, size_t data_cap,
-                     size_t *data_len, uint32_t timeout_ms)
+static int fake_recv(void *ctx, uint8_t *data, size_t capacity,
+                     size_t *length, uint32_t timeout_ms)
 {
-    FakeTransport_t *fake = (FakeTransport_t *)ctx;
-    int index = fake->recv_count;
-    size_t copy_len = 0u;
+    FakeTransport *fake = ctx;
+    size_t index;
 
-    assert(index < (int)FAKE_RESPONSE_CAPACITY);
-    fake->recv_timeouts[index] = timeout_ms;
-    if (timeout_ms < fake->response_ready_after_ms[index])
+    (void)timeout_ms;
+    if (!fake->response_available)
     {
         return -1;
     }
-    copy_len = fake->response_lens[index];
-    if (copy_len > data_cap)
-    {
-        copy_len = data_cap;
-    }
-    memcpy(data, fake->responses[index], copy_len);
-    *data_len = fake->response_lens[index];
-    fake->recv_count++;
+    index = fake->recv_count++;
+    assert(index < FAKE_CAPACITY);
+    assert(fake->response_len[index] <= capacity);
+    memcpy(data, fake->response[index], fake->response_len[index]);
+    *length = fake->response_len[index];
+    fake->response_available =
+        fake->response_len[index] == 3U &&
+        fake->response[index][0] == 0x7FU &&
+        fake->response[index][2] == 0x78U;
     return 0;
 }
 
-static UdsClient make_client(FakeTransport_t *fake)
+static void make_client(FakeTransport *fake, UdsClient *client)
 {
-    static const TransportOps ops = {
-        fake_send,
-        fake_recv,
-    };
+    static const TransportOps operations = {fake_send, fake_recv};
+
+    uds_client_init(client, &operations, fake);
+}
+
+static void expect_request(FakeTransport *fake, size_t index,
+                           const uint8_t *request, size_t request_len,
+                           const uint8_t *response, size_t response_len)
+{
+    memcpy(fake->expected_send[index], request, request_len);
+    fake->expected_send_len[index] = request_len;
+    memcpy(fake->response[index], response, response_len);
+    fake->response_len[index] = response_len;
+}
+
+static void test_session_uses_upstream_timing_negotiation(void)
+{
+    FakeTransport fake = {0};
     UdsClient client;
+    static const uint8_t request[] = {0x10U, 0x02U};
+    static const uint8_t response[] = {
+        0x50U, 0x02U, 0x00U, 0x14U, 0x00U, 0x64U,
+    };
 
-    uds_client_init(&client, &ops, fake);
-    return client;
+    make_client(&fake, &client);
+    expect_request(&fake, 0U, request, sizeof(request),
+                   response, sizeof(response));
+    assert(uds_enter_session(&client, SESSION_PROGRAMMING) == UDS_OK);
+    assert(client.upstream.p2_ms == 20U);
+    assert(client.upstream.p2_star_ms == 1000U);
 }
 
-static void test_expired_operation_deadline_prevents_transport_use(void)
+static void test_tester_present_and_security_access(void)
 {
-    FakeTransport_t fake = {0};
-    UdsClient client = make_client(&fake);
+    FakeTransport fake = {0};
+    UdsClient client;
+    uint8_t seed[SECURITY_ACCESS_SEED_SIZE] = {0};
+    size_t seed_len = 0U;
+    static const uint8_t tester_request[] = {0x3EU, 0x00U};
+    static const uint8_t tester_response[] = {0x7EU, 0x00U};
+    static const uint8_t seed_request[] = {0x27U, 0x01U};
+    static const uint8_t seed_response[] = {
+        0x67U, 0x01U, 0x11U, 0x22U, 0x33U, 0x44U,
+    };
+    static const uint8_t token_request[] = {0x27U, 0x02U, 0xA5U};
+    static const uint8_t token_response[] = {0x67U, 0x02U};
 
+    make_client(&fake, &client);
+    expect_request(&fake, 0U, tester_request, sizeof(tester_request),
+                   tester_response, sizeof(tester_response));
+    expect_request(&fake, 1U, seed_request, sizeof(seed_request),
+                   seed_response, sizeof(seed_response));
+    expect_request(&fake, 2U, token_request, sizeof(token_request),
+                   token_response, sizeof(token_response));
+
+    assert(uds_tester_present(&client) == UDS_OK);
+    assert(uds_security_request_seed(&client, seed, sizeof(seed), &seed_len) ==
+           UDS_OK);
+    assert(seed_len == sizeof(seed));
+    assert(memcmp(seed, &seed_response[2], sizeof(seed)) == 0);
+    assert(uds_security_send_token(&client, &token_request[2], 1U) == UDS_OK);
+}
+
+static void test_read_did_and_exact_nrc(void)
+{
+    FakeTransport fake = {0};
+    UdsClient client;
+    uint8_t data[4] = {0};
+    size_t data_len = 0U;
+    static const uint8_t did_request[] = {0x22U, 0xF1U, 0xF1U};
+    static const uint8_t did_response[] = {
+        0x62U, 0xF1U, 0xF1U, 0x12U, 0x34U,
+    };
+    static const uint8_t missing_request[] = {0x22U, 0xFFU, 0xFFU};
+    static const uint8_t missing_response[] = {0x7FU, 0x22U, 0x31U};
+
+    make_client(&fake, &client);
+    expect_request(&fake, 0U, did_request, sizeof(did_request),
+                   did_response, sizeof(did_response));
+    expect_request(&fake, 1U, missing_request, sizeof(missing_request),
+                   missing_response, sizeof(missing_response));
+
+    assert(uds_read_did(&client, DID_APP_VERSION, data, sizeof(data),
+                        &data_len) == UDS_OK);
+    assert(data_len == 2U && data[0] == 0x12U && data[1] == 0x34U);
+    assert(uds_read_did(&client, 0xFFFFU, data, sizeof(data), &data_len) ==
+           UDS_NRC_RequestOutOfRange);
+    assert(client.last_nrc == UDS_NRC_RequestOutOfRange);
+}
+
+static void test_read_did_rejects_mismatched_identifier(void)
+{
+    FakeTransport fake = {0};
+    UdsClient client;
+    uint8_t data[1] = {0};
+    size_t data_len = 0U;
+    static const uint8_t request[] = {0x22U, 0xF1U, 0xF1U};
+    static const uint8_t response[] = {0x62U, 0xF1U, 0xF2U, 0x01U};
+
+    make_client(&fake, &client);
+    expect_request(&fake, 0U, request, sizeof(request),
+                   response, sizeof(response));
+    assert(uds_read_did(&client, DID_APP_VERSION, data, sizeof(data),
+                        &data_len) == UDS_ERR_DID_MISMATCH);
+}
+
+static void test_response_pending_has_no_project_count_limit(void)
+{
+    FakeTransport fake = {0};
+    UdsClient client;
+    uint8_t data[1] = {0};
+    size_t data_len = 0U;
+    static const uint8_t request[] = {0x22U, 0xF1U, 0xF1U};
+    static const uint8_t pending[] = {0x7FU, 0x22U, 0x78U};
+    static const uint8_t positive[] = {0x62U, 0xF1U, 0xF1U, 0x5AU};
+
+    make_client(&fake, &client);
+    memcpy(fake.expected_send[0], request, sizeof(request));
+    fake.expected_send_len[0] = sizeof(request);
+    for (size_t index = 0U; index < 10U; ++index)
+    {
+        memcpy(fake.response[index], pending, sizeof(pending));
+        fake.response_len[index] = sizeof(pending);
+    }
+    memcpy(fake.response[10], positive, sizeof(positive));
+    fake.response_len[10] = sizeof(positive);
+
+    assert(uds_read_did(&client, DID_APP_VERSION, data, sizeof(data),
+                        &data_len) == UDS_OK);
+    assert(fake.recv_count == 11U);
+    assert(data_len == 1U && data[0] == 0x5AU);
+}
+
+static void test_download_transfer_and_exit(void)
+{
+    FakeTransport fake = {0};
+    UdsClient client;
+    uint16_t block_length = 0U;
+    static const uint8_t download_request[] = {
+        0x34U, 0x00U, 0x44U, 0, 0, 0, 0, 0, 0, 0, 2,
+    };
+    static const uint8_t download_response[] = {0x74U, 0x20U, 0x01U, 0x02U};
+    static const uint8_t transfer_request[] = {0x36U, 0x01U, 0xAAU, 0xBBU};
+    static const uint8_t transfer_response[] = {0x76U, 0x01U};
+    static const uint8_t exit_request[] = {0x37U};
+    static const uint8_t exit_response[] = {0x77U};
+
+    make_client(&fake, &client);
+    expect_request(&fake, 0U, download_request, sizeof(download_request),
+                   download_response, sizeof(download_response));
+    expect_request(&fake, 1U, transfer_request, sizeof(transfer_request),
+                   transfer_response, sizeof(transfer_response));
+    expect_request(&fake, 2U, exit_request, sizeof(exit_request),
+                   exit_response, sizeof(exit_response));
+
+    assert(uds_request_download(&client, 2U, &block_length) == UDS_OK);
+    assert(block_length == 258U);
+    assert(uds_transfer_data(&client, 1U, &transfer_request[2], 2U) == UDS_OK);
+    assert(uds_request_transfer_exit(&client) == UDS_OK);
+    assert(client.max_block_length == 0U);
+}
+
+static void test_transport_error_and_expired_deadline(void)
+{
+    FakeTransport fake = {0};
+    UdsClient client;
+    static const uint8_t request[] = {0x3EU, 0x00U};
+
+    make_client(&fake, &client);
+    memcpy(fake.expected_send[0], request, sizeof(request));
+    fake.expected_send_len[0] = sizeof(request);
+    fake.send_failure[0] = true;
+    assert(uds_tester_present(&client) == UDS_ERR_TPORT);
+
+    memset(&fake, 0, sizeof(fake));
+    make_client(&fake, &client);
     uds_client_set_operation_deadline(&client, util_monotonic_ms());
-
     assert(uds_tester_present(&client) == UDS_ERR_TIMEOUT);
-    assert(fake.send_count == 0);
-    assert(fake.recv_count == 0);
-}
-
-static void set_session_response(FakeTransport_t *fake, int index, uint8_t session,
-                                 uint16_t p2_server_max_ms,
-                                 uint16_t p2_star_server_max_wire)
-{
-    assert(index >= 0 && index < (int)FAKE_RESPONSE_CAPACITY);
-    fake->responses[index][0] = SID_DIAGNOSTIC_SESSION_CONTROL_POS;
-    fake->responses[index][1] = session;
-    fake->responses[index][2] = (uint8_t)(p2_server_max_ms >> 8);
-    fake->responses[index][3] = (uint8_t)p2_server_max_ms;
-    fake->responses[index][4] = (uint8_t)(p2_star_server_max_wire >> 8);
-    fake->responses[index][5] = (uint8_t)p2_star_server_max_wire;
-    fake->response_lens[index] = UDS_SESSION_CONTROL_RESPONSE_LENGTH;
-}
-
-static void test_enter_programming_session(void)
-{
-    FakeTransport_t fake = {0};
-    UdsClient client = make_client(&fake);
-
-    fake.expected_send[0] = SID_DIAGNOSTIC_SESSION_CONTROL;
-    fake.expected_send[1] = SESSION_PROGRAMMING;
-    fake.expected_send_len = 2;
-    set_session_response(&fake, 0, SESSION_PROGRAMMING, P2_SERVER_DEFAULT_MS,
-                         P2_STAR_SERVER_DEFAULT_WIRE);
-
-    assert(uds_enter_session(&client, SESSION_PROGRAMMING) == 0);
-    assert(fake.send_count == 1);
-    assert(fake.recv_count == 1);
-    assert(fake.recv_timeouts[0] == P2_SERVER_DEFAULT_MS);
-    assert(client.p2_server_max_ms == P2_SERVER_DEFAULT_MS);
-    assert(client.p2_star_server_max_ms == P2_STAR_SERVER_DEFAULT_MS);
-}
-
-static void test_session_response_negotiates_timing(void)
-{
-    FakeTransport_t fake = {0};
-    UdsClient client = make_client(&fake);
-    uint8_t data[8] = {0};
-    size_t data_len = 0u;
-
-    fake.expected_send[0] = SID_DIAGNOSTIC_SESSION_CONTROL;
-    fake.expected_send[1] = SESSION_PROGRAMMING;
-    fake.expected_send_len = 2u;
-    set_session_response(&fake, 0, SESSION_PROGRAMMING, 20u, 100u);
-
-    assert(uds_enter_session(&client, SESSION_PROGRAMMING) == 0);
-    assert(client.p2_server_max_ms == 20u);
-    assert(client.p2_star_server_max_ms == 1000u);
-
-    fake.expected_send[0] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.expected_send[1] = (uint8_t)(DID_APP_VERSION >> 8);
-    fake.expected_send[2] = (uint8_t)DID_APP_VERSION;
-    fake.expected_send_len = 3u;
-    fake.responses[1][0] = NEGATIVE_RESPONSE_SID;
-    fake.responses[1][1] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.responses[1][2] = NRC_RESPONSE_PENDING;
-    fake.response_lens[1] = UDS_NEGATIVE_RESPONSE_LENGTH;
-    fake.responses[2][0] = SID_READ_DATA_BY_IDENTIFIER_POS;
-    fake.responses[2][1] = (uint8_t)(DID_APP_VERSION >> 8);
-    fake.responses[2][2] = (uint8_t)DID_APP_VERSION;
-    fake.responses[2][3] = 0x56u;
-    fake.response_lens[2] = 4u;
-
-    assert(uds_read_did(&client, DID_APP_VERSION, data, sizeof(data), &data_len) == 0);
-    assert(fake.recv_timeouts[0] == P2_SERVER_DEFAULT_MS);
-    assert(fake.recv_timeouts[1] == 20u);
-    assert(fake.recv_timeouts[2] == 1000u);
-    assert(data_len == 1u);
-    assert(data[0] == 0x56u);
-}
-
-static void test_session_response_requires_timing_parameters(void)
-{
-    FakeTransport_t fake = {0};
-    UdsClient client = make_client(&fake);
-
-    fake.expected_send[0] = SID_DIAGNOSTIC_SESSION_CONTROL;
-    fake.expected_send[1] = SESSION_PROGRAMMING;
-    fake.expected_send_len = 2u;
-    fake.responses[0][0] = SID_DIAGNOSTIC_SESSION_CONTROL_POS;
-    fake.responses[0][1] = SESSION_PROGRAMMING;
-    fake.response_lens[0] = 2u;
-
-    assert(uds_enter_session(&client, SESSION_PROGRAMMING) == UDS_ERR_MALFORMED_RESPONSE);
-    assert(client.p2_server_max_ms == P2_SERVER_DEFAULT_MS);
-    assert(client.p2_star_server_max_ms == P2_STAR_SERVER_DEFAULT_MS);
-}
-
-static void test_tester_present(void)
-{
-    FakeTransport_t fake = {0};
-    UdsClient client = make_client(&fake);
-
-    fake.expected_send[0] = SID_TESTER_PRESENT;
-    fake.expected_send[1] = 0x00;
-    fake.expected_send_len = 2;
-    fake.responses[0][0] = SID_TESTER_PRESENT_POS;
-    fake.responses[0][1] = 0x00;
-    fake.response_lens[0] = 2;
-
-    assert(uds_tester_present(&client) == 0);
-}
-
-static void test_tester_present_rejects_invalid_lengths(void)
-{
-    FakeTransport_t fake = {0};
-    UdsClient client = make_client(&fake);
-
-    fake.expected_send[0] = SID_TESTER_PRESENT;
-    fake.expected_send[1] = 0x00u;
-    fake.expected_send_len = 2u;
-    fake.responses[0][0] = SID_TESTER_PRESENT_POS;
-    fake.responses[0][1] = 0x00u;
-    fake.responses[0][2] = 0xAAu;
-    fake.response_lens[0] = 3u;
-    assert(uds_tester_present(&client) == UDS_ERR_UNEXPECTED_RESPONSE);
-
-    fake.recv_count = 0;
-    fake.response_lens[0] = 1u;
-    assert(uds_tester_present(&client) == UDS_ERR_UNEXPECTED_RESPONSE);
-}
-
-static void test_mcu_reset_restores_default_timing(void)
-{
-    FakeTransport_t fake = {0};
-    UdsClient client = make_client(&fake);
-
-    client.p2_server_max_ms = 20u;
-    client.p2_star_server_max_ms = 1000u;
-    fake.expected_send[0] = SID_MCU_RESET;
-    fake.expected_send[1] = SUB_HARD_RESET;
-    fake.expected_send_len = 2u;
-    fake.responses[0][0] = SID_MCU_RESET_POS;
-    fake.responses[0][1] = SUB_HARD_RESET;
-    fake.response_lens[0] = 2u;
-
-    assert(uds_mcu_reset_hard(&client) == 0);
-    assert(fake.recv_timeouts[0] == 20u);
-    assert(client.p2_server_max_ms == P2_SERVER_DEFAULT_MS);
-    assert(client.p2_star_server_max_ms == P2_STAR_SERVER_DEFAULT_MS);
-}
-
-static void test_security_token_requires_response_pending_for_extended_processing(void)
-{
-    FakeTransport_t fake = {0};
-    UdsClient client = make_client(&fake);
-    uint8_t token[292];
-    size_t index;
-
-    for (index = 0u; index < sizeof(token); index++)
-    {
-        token[index] = (uint8_t)(index ^ 0xA5u);
-    }
-    fake.expected_send[0] = SID_SECURITY_ACCESS;
-    fake.expected_send[1] = SECURITY_ACCESS_LEVEL_PROGRAMMING_KEY;
-    memcpy(fake.expected_send + 2u, token, sizeof(token));
-    fake.expected_send_len = sizeof(token) + 2u;
-    fake.responses[0][0] = NEGATIVE_RESPONSE_SID;
-    fake.responses[0][1] = SID_SECURITY_ACCESS;
-    fake.responses[0][2] = NRC_RESPONSE_PENDING;
-    fake.response_lens[0] = UDS_NEGATIVE_RESPONSE_LENGTH;
-    fake.responses[1][0] = SID_SECURITY_ACCESS_POS;
-    fake.responses[1][1] = SECURITY_ACCESS_LEVEL_PROGRAMMING_KEY;
-    fake.response_lens[1] = 2u;
-
-    assert(uds_security_send_token(&client, token, sizeof(token)) == 0);
-    assert(fake.send_count == 1);
-    assert(fake.recv_count == 2);
-    assert(fake.recv_timeouts[0] > P2_SERVER_DEFAULT_MS);
-    assert(fake.recv_timeouts[0] < P2_STAR_SERVER_DEFAULT_MS);
-    assert(fake.recv_timeouts[1] == P2_STAR_SERVER_DEFAULT_MS);
-}
-
-static void test_read_did_copies_payload(void)
-{
-    FakeTransport_t fake = {0};
-    UdsClient client = make_client(&fake);
-    uint8_t data[8];
-    size_t data_len = 0;
-
-    fake.expected_send[0] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.expected_send[1] = (uint8_t)(DID_BOOT_VERSION >> 8);
-    fake.expected_send[2] = (uint8_t)DID_BOOT_VERSION;
-    fake.expected_send_len = 3;
-    fake.responses[0][0] = SID_READ_DATA_BY_IDENTIFIER_POS;
-    fake.responses[0][1] = (uint8_t)(DID_BOOT_VERSION >> 8);
-    fake.responses[0][2] = (uint8_t)DID_BOOT_VERSION;
-    fake.responses[0][3] = 0x12;
-    fake.responses[0][4] = 0x34;
-    fake.response_lens[0] = 5;
-
-    assert(uds_read_did(&client, DID_BOOT_VERSION, data, sizeof(data), &data_len) == 0);
-    assert(data_len == 2);
-    assert(data[0] == 0x12);
-    assert(data[1] == 0x34);
-}
-
-static void test_negative_response_is_reported(void)
-{
-    FakeTransport_t fake = {0};
-    UdsClient client = make_client(&fake);
-    uint8_t data[8] = {0};
-    size_t data_len = 0;
-    fake.expected_send[0] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.expected_send[1] = 0xFF;
-    fake.expected_send[2] = 0xFF;
-    fake.expected_send_len = 3;
-    fake.responses[0][0] = NEGATIVE_RESPONSE_SID;
-    fake.responses[0][1] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.responses[0][2] = NRC_REQUEST_OUT_OF_RANGE;
-    fake.response_lens[0] = 3;
-
-    assert(uds_read_did(&client, 0xFFFFu, data, sizeof(data), &data_len) ==
-           UDS_ERR_NEGATIVE_RESPONSE);
-    assert(client.last_nrc == NRC_REQUEST_OUT_OF_RANGE);
-}
-
-static void test_busy_repeat_request_is_reported(void)
-{
-    FakeTransport_t fake = {0};
-    UdsClient client = make_client(&fake);
-    uint8_t data[8] = {0};
-    size_t data_len = 0u;
-
-    fake.expected_send[0] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.expected_send[1] = (uint8_t)(DID_APP_VERSION >> 8);
-    fake.expected_send[2] = (uint8_t)DID_APP_VERSION;
-    fake.expected_send_len = 3u;
-    fake.responses[0][0] = NEGATIVE_RESPONSE_SID;
-    fake.responses[0][1] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.responses[0][2] = NRC_BUSY_REPEAT_REQUEST;
-    fake.response_lens[0] = UDS_NEGATIVE_RESPONSE_LENGTH;
-
-    assert(uds_read_did(&client, DID_APP_VERSION, data, sizeof(data), &data_len) ==
-           UDS_ERR_NEGATIVE_RESPONSE);
-    assert(client.last_nrc == NRC_BUSY_REPEAT_REQUEST);
-}
-
-static void test_malformed_negative_response_is_rejected(void)
-{
-    FakeTransport_t fake = {0};
-    UdsClient client = make_client(&fake);
-    uint8_t data[8] = {0};
-    size_t data_len = 0u;
-
-    fake.expected_send[0] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.expected_send[1] = (uint8_t)(DID_APP_VERSION >> 8);
-    fake.expected_send[2] = (uint8_t)DID_APP_VERSION;
-    fake.expected_send_len = 3u;
-    fake.responses[0][0] = NEGATIVE_RESPONSE_SID;
-    fake.responses[0][1] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.response_lens[0] = 2u;
-
-    assert(uds_read_did(&client, DID_APP_VERSION, data, sizeof(data), &data_len) ==
-           UDS_ERR_MALFORMED_RESPONSE);
-    assert(client.last_nrc == 0u);
-}
-
-static void test_response_pending_switches_to_p2_star(void)
-{
-    FakeTransport_t fake = {0};
-    UdsClient client = make_client(&fake);
-    uint8_t data[8];
-    size_t data_len = 0;
-
-    fake.expected_send[0] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.expected_send[1] = (uint8_t)(DID_APP_VERSION >> 8);
-    fake.expected_send[2] = (uint8_t)DID_APP_VERSION;
-    fake.expected_send_len = 3;
-    fake.responses[0][0] = NEGATIVE_RESPONSE_SID;
-    fake.responses[0][1] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.responses[0][2] = NRC_RESPONSE_PENDING;
-    fake.response_lens[0] = 3;
-    fake.responses[1][0] = SID_READ_DATA_BY_IDENTIFIER_POS;
-    fake.responses[1][1] = (uint8_t)(DID_APP_VERSION >> 8);
-    fake.responses[1][2] = (uint8_t)DID_APP_VERSION;
-    fake.responses[1][3] = 0x56;
-    fake.response_lens[1] = 4;
-
-    assert(uds_read_did(&client, DID_APP_VERSION, data, sizeof(data), &data_len) == 0);
-    assert(fake.send_count == 1);
-    assert(fake.recv_count == 2);
-    assert(fake.recv_timeouts[0] == P2_SERVER_DEFAULT_MS);
-    assert(fake.recv_timeouts[1] == P2_STAR_SERVER_DEFAULT_MS);
-    assert(data_len == 1);
-    assert(data[0] == 0x56);
-    assert(client.last_nrc == 0u);
-}
-
-static void test_response_pending_then_timeout_has_no_terminal_nrc(void)
-{
-    FakeTransport_t fake = {0};
-    UdsClient client = make_client(&fake);
-    uint8_t data[8] = {0};
-    size_t data_len = 0u;
-    fake.expected_send[0] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.expected_send[1] = (uint8_t)(DID_APP_VERSION >> 8);
-    fake.expected_send[2] = (uint8_t)DID_APP_VERSION;
-    fake.expected_send_len = 3u;
-    fake.responses[0][0] = NEGATIVE_RESPONSE_SID;
-    fake.responses[0][1] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.responses[0][2] = NRC_RESPONSE_PENDING;
-    fake.response_lens[0] = 3u;
-    fake.response_ready_after_ms[1] = P2_STAR_SERVER_DEFAULT_MS + 1u;
-
-    assert(uds_read_did(&client, DID_APP_VERSION, data, sizeof(data), &data_len) ==
-           UDS_ERR_TIMEOUT);
-    assert(fake.send_count == 1);
-    assert(fake.recv_count == 1);
-    assert(fake.recv_timeouts[0] == P2_SERVER_DEFAULT_MS);
-    assert(fake.recv_timeouts[1] == P2_STAR_SERVER_DEFAULT_MS);
-    assert(data_len == 0u);
-    assert(client.last_nrc == 0u);
-}
-
-static void test_response_pending_limit_accepts_mcu_budget(void)
-{
-    FakeTransport_t fake = {0};
-    UdsClient client = make_client(&fake);
-    uint8_t data[8] = {0};
-    size_t data_len = 0u;
-    uint8_t index;
-
-    fake.expected_send[0] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.expected_send[1] = (uint8_t)(DID_APP_VERSION >> 8);
-    fake.expected_send[2] = (uint8_t)DID_APP_VERSION;
-    fake.expected_send_len = 3u;
-    for (index = 0u; index < UDS_RESPONSE_PENDING_MAX_COUNT; ++index)
-    {
-        fake.responses[index][0] = NEGATIVE_RESPONSE_SID;
-        fake.responses[index][1] = SID_READ_DATA_BY_IDENTIFIER;
-        fake.responses[index][2] = NRC_RESPONSE_PENDING;
-        fake.response_lens[index] = UDS_NEGATIVE_RESPONSE_LENGTH;
-    }
-    fake.responses[UDS_RESPONSE_PENDING_MAX_COUNT][0] = SID_READ_DATA_BY_IDENTIFIER_POS;
-    fake.responses[UDS_RESPONSE_PENDING_MAX_COUNT][1] =
-        (uint8_t)(DID_APP_VERSION >> 8);
-    fake.responses[UDS_RESPONSE_PENDING_MAX_COUNT][2] =
-        (uint8_t)DID_APP_VERSION;
-    fake.responses[UDS_RESPONSE_PENDING_MAX_COUNT][3] = 0x01u;
-    fake.response_lens[UDS_RESPONSE_PENDING_MAX_COUNT] = 4u;
-
-    assert(uds_read_did(&client, DID_APP_VERSION, data, sizeof(data), &data_len) == 0);
-    assert(fake.recv_count == (int)(UDS_RESPONSE_PENDING_MAX_COUNT + 1u));
-    assert(fake.recv_timeouts[0] == P2_SERVER_DEFAULT_MS);
-    for (index = 1u; index <= UDS_RESPONSE_PENDING_MAX_COUNT; ++index)
-    {
-        assert(fake.recv_timeouts[index] == P2_STAR_SERVER_DEFAULT_MS);
-    }
-}
-
-static void test_response_pending_limit_rejects_extra_pending(void)
-{
-    FakeTransport_t fake = {0};
-    UdsClient client = make_client(&fake);
-    uint8_t data[8] = {0};
-    size_t data_len = 0u;
-    uint8_t index;
-
-    fake.expected_send[0] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.expected_send[1] = (uint8_t)(DID_APP_VERSION >> 8);
-    fake.expected_send[2] = (uint8_t)DID_APP_VERSION;
-    fake.expected_send_len = 3u;
-    for (index = 0u; index <= UDS_RESPONSE_PENDING_MAX_COUNT; ++index)
-    {
-        fake.responses[index][0] = NEGATIVE_RESPONSE_SID;
-        fake.responses[index][1] = SID_READ_DATA_BY_IDENTIFIER;
-        fake.responses[index][2] = NRC_RESPONSE_PENDING;
-        fake.response_lens[index] = UDS_NEGATIVE_RESPONSE_LENGTH;
-    }
-
-    assert(uds_read_did(&client, DID_APP_VERSION, data, sizeof(data), &data_len) ==
-           UDS_ERR_RESPONSE_PENDING_LIMIT);
-    assert(fake.recv_count == (int)(UDS_RESPONSE_PENDING_MAX_COUNT + 1u));
-}
-
-static void test_read_did_handles_large_response(void)
-{
-    FakeTransport_t fake = {0};
-    UdsClient client = make_client(&fake);
-    uint8_t data[497] = {0};
-    size_t data_len = 0u;
-    size_t i = 0u;
-
-    fake.expected_send[0] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.expected_send[1] = (uint8_t)(DID_APP_VERSION >> 8);
-    fake.expected_send[2] = (uint8_t)DID_APP_VERSION;
-    fake.expected_send_len = 3u;
-    fake.responses[0][0] = SID_READ_DATA_BY_IDENTIFIER_POS;
-    fake.responses[0][1] = (uint8_t)(DID_APP_VERSION >> 8);
-    fake.responses[0][2] = (uint8_t)DID_APP_VERSION;
-    for (i = 3u; i < 500u; ++i)
-    {
-        fake.responses[0][i] = (uint8_t)i;
-    }
-    fake.response_lens[0] = 500u;
-
-    assert(uds_read_did(&client, DID_APP_VERSION, data, sizeof(data), &data_len) == 0);
-    assert(data_len == 497u);
-    assert(memcmp(data, fake.responses[0] + 3u, 497u) == 0);
-}
-
-static void test_read_did_reports_transport_truncation(void)
-{
-    FakeTransport_t fake = {0};
-    UdsClient client = make_client(&fake);
-    uint8_t data[8] = {0};
-    size_t data_len = 0u;
-    size_t i = 0u;
-    fake.expected_send[0] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.expected_send[1] = (uint8_t)(DID_APP_VERSION >> 8);
-    fake.expected_send[2] = (uint8_t)DID_APP_VERSION;
-    fake.expected_send_len = 3u;
-    fake.responses[0][0] = SID_READ_DATA_BY_IDENTIFIER_POS;
-    fake.responses[0][1] = (uint8_t)(DID_APP_VERSION >> 8);
-    fake.responses[0][2] = (uint8_t)DID_APP_VERSION;
-    for (i = 3u; i < 600u; ++i)
-    {
-        fake.responses[0][i] = (uint8_t)i;
-    }
-    fake.response_lens[0] = 600u;
-
-    assert(uds_read_did(&client, DID_APP_VERSION, data, sizeof(data), &data_len) ==
-           UDS_ERR_BUFFER_TOO_SMALL);
-    assert(client.last_nrc == 0u);
-}
-
-static void test_read_did_rejects_mismatched_did(void)
-{
-    FakeTransport_t fake = {0};
-    UdsClient client = make_client(&fake);
-    uint8_t data[8] = {0};
-    size_t data_len = 0u;
-    fake.expected_send[0] = SID_READ_DATA_BY_IDENTIFIER;
-    fake.expected_send[1] = (uint8_t)(DID_APP_VERSION >> 8);
-    fake.expected_send[2] = (uint8_t)DID_APP_VERSION;
-    fake.expected_send_len = 3u;
-    fake.responses[0][0] = SID_READ_DATA_BY_IDENTIFIER_POS;
-    fake.responses[0][1] = (uint8_t)(DID_APP_VERSION >> 8);
-    fake.responses[0][2] = (uint8_t)DID_APP_VERSION ^ 1u;
-    fake.responses[0][3] = 0x01u;
-    fake.response_lens[0] = 4u;
-
-    assert(uds_read_did(&client, DID_APP_VERSION, data, sizeof(data), &data_len) ==
-           UDS_ERR_UNEXPECTED_RESPONSE);
-    assert(client.last_nrc == 0u);
-}
-
-static void test_transfer_data_uses_extended_timeout_for_full_block(void)
-{
-    FakeTransport_t fake = {0};
-    UdsClient client = make_client(&fake);
-    uint8_t block[TRANSFER_BLOCK_PAYLOAD];
-    size_t i;
-
-    for (i = 0; i < sizeof(block); ++i) {
-        block[i] = (uint8_t)i;
-    }
-
-    fake.expected_send[0] = SID_TRANSFER_DATA;
-    fake.expected_send[1] = 0x01;
-    memcpy(fake.expected_send + 2, block, sizeof(block));
-    fake.expected_send_len = sizeof(block) + 2u;
-    fake.responses[0][0] = SID_TRANSFER_DATA_POS;
-    fake.responses[0][1] = 0x01;
-    fake.response_lens[0] = 2;
-    fake.response_ready_after_ms[0] = 80u;
-
-    assert(uds_transfer_data(&client, 0x01u, block, sizeof(block)) == 0);
-    assert(fake.send_count == 1);
-assert(fake.recv_count == 1);
-    assert(fake.recv_timeouts[0] >= fake.response_ready_after_ms[0]);
+    assert(fake.send_count == 0U && fake.recv_count == 0U);
 }
 
 int main(void)
 {
-    test_expired_operation_deadline_prevents_transport_use();
-    test_enter_programming_session();
-    test_session_response_negotiates_timing();
-    test_session_response_requires_timing_parameters();
-    test_tester_present();
-    test_tester_present_rejects_invalid_lengths();
-    test_mcu_reset_restores_default_timing();
-    test_security_token_requires_response_pending_for_extended_processing();
-    test_read_did_copies_payload();
-    test_negative_response_is_reported();
-    test_busy_repeat_request_is_reported();
-    test_malformed_negative_response_is_rejected();
-    test_response_pending_switches_to_p2_star();
-    test_response_pending_then_timeout_has_no_terminal_nrc();
-    test_response_pending_limit_accepts_mcu_budget();
-    test_response_pending_limit_rejects_extra_pending();
-    test_read_did_handles_large_response();
-    test_read_did_reports_transport_truncation();
-    test_read_did_rejects_mismatched_did();
-    test_transfer_data_uses_extended_timeout_for_full_block();
+    test_session_uses_upstream_timing_negotiation();
+    test_tester_present_and_security_access();
+    test_read_did_and_exact_nrc();
+    test_read_did_rejects_mismatched_identifier();
+    test_response_pending_has_no_project_count_limit();
+    test_download_transfer_and_exit();
+    test_transport_error_and_expired_deadline();
     return 0;
 }

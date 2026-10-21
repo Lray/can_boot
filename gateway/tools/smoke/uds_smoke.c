@@ -85,7 +85,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    if (uds_read_did(&client, negative_did, negative_data, sizeof(negative_data), &negative_len) != UDS_ERR_NEGATIVE_RESPONSE) {
+    if (uds_read_did(&client, negative_did, negative_data, sizeof(negative_data), &negative_len) != UDS_NRC_RequestOutOfRange) {
         fprintf(stderr, "negative response path failed: DID 0x%04X did not return negative response\n", negative_did);
         isotp_channel_close(&channel);
         return 1;

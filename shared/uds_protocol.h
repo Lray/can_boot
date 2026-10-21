@@ -6,8 +6,8 @@
 /*
  * Shared UDS wire contract between the MCU firmware (can/) and the Linux
  * gateway (gateway/).  This header is the single source of truth for the
- * diagnostic protocol values; both trees include it and must not redefine
- * these macros locally.
+ * product-profile values used by both trees. Standard UDS state-machine
+ * behavior and canonical NRC definitions come from the pinned iso14229 core.
  *
  * Naming follows the MCU tree (UPPER_SNAKE with U suffix).
  */
@@ -17,8 +17,6 @@
 #define P2_STAR_SERVER_DEFAULT_MS 5000U
 /* ISO 14229 encodes P2*ServerMax in 10 ms units on the wire. */
 #define P2_STAR_SERVER_DEFAULT_WIRE (P2_STAR_SERVER_DEFAULT_MS / 10U)
-#define UDS_RESPONSE_PENDING_MAX_COUNT 8U
-#define UDS_SERVER_DEFAULT_S3_MS 5100U
 
 /* --- Service identifiers --- */
 #define SID_DIAGNOSTIC_SESSION_CONTROL 0x10U
@@ -77,27 +75,6 @@
 /* Complete positive response offsets include the 0x74 SID. */
 #define UDS_REQUEST_DOWNLOAD_RESPONSE_LEN 4U
 #define UDS_REQUEST_DOWNLOAD_RESPONSE_MAX_BLOCK_OFFSET 2U
-
-/* --- Negative response codes --- */
-#define NRC_GENERAL_REJECT 0x10U
-#define NRC_SERVICE_NOT_SUPPORTED 0x11U
-#define NRC_SUBFUNCTION_NOT_SUPPORTED 0x12U
-#define NRC_INCORRECT_MESSAGE_LENGTH 0x13U
-#define NRC_BUSY_REPEAT_REQUEST 0x21U
-#define NRC_CONDITIONS_NOT_CORRECT 0x22U
-#define NRC_REQUEST_SEQUENCE_ERROR 0x24U
-#define NRC_REQUEST_OUT_OF_RANGE 0x31U
-#define NRC_SECURITY_ACCESS_DENIED 0x33U
-#define NRC_INVALID_KEY 0x35U
-#define NRC_EXCEED_NUMBER_OF_ATTEMPTS 0x36U
-#define NRC_REQUIRED_TIME_DELAY_NOT_EXPIRED 0x37U
-#define NRC_UPLOAD_DOWNLOAD_NOT_ACCEPTED 0x70U
-#define NRC_TRANSFER_DATA_SUSPENDED 0x71U
-#define NRC_GENERAL_PROGRAMMING_FAILURE 0x72U
-#define NRC_WRONG_BLOCK_SEQUENCE_COUNTER 0x73U
-#define NRC_RESPONSE_PENDING 0x78U
-#define NRC_SUBFUNCTION_NOT_SUPPORTED_IN_ACTIVE_SESSION 0x7EU
-#define NRC_SERVICE_NOT_SUPPORTED_IN_ACTIVE_SESSION 0x7FU
 
 /* --- Data identifiers --- */
 #define DID_BOOT_VERSION 0xF1F0U

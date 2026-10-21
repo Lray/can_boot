@@ -5,44 +5,53 @@
 #include "image_confirm.h"
 #include "shared/uds_protocol.h"
 #include "sysflash.h"
-#include "uds_msg.h"
 
 #include <stddef.h>
 #include <string.h>
 
-static void UDS_ReadDid_SetResponseHeader(
-    uint16_t did,
-    uds_read_did_response_t *response)
+static void write_be16(uint8_t *data, uint16_t value)
 {
-    response->data[0] = SID_READ_DATA_BY_IDENTIFIER_POS;
-    UDS_Msg_WriteBe16(&response->data[1], did);
+    data[0] = (uint8_t)(value >> 8);
+    data[1] = (uint8_t)value;
 }
 
-static void UDS_ReadDid_SetTextVersion(
-    uds_read_did_response_t *response,
-    uint8_t prefix)
+static void write_be32(uint8_t *data, uint32_t value)
 {
-    response->data[3] = prefix;
-    response->data[4] = '0';
-    response->data[5] = '0';
-    response->data[6] = '1';
-    response->length = 7U;
+    data[0] = (uint8_t)(value >> 24);
+    data[1] = (uint8_t)(value >> 16);
+    data[2] = (uint8_t)(value >> 8);
+    data[3] = (uint8_t)value;
 }
 
-static uds_read_did_result_t UDS_ReadDid_BuildStandardResponse(
+static void set_text_version(uds_read_did_payload_t *payload, uint8_t prefix)
+{
+    payload->data[0] = prefix;
+    payload->data[1] = '0';
+    payload->data[2] = '0';
+    payload->data[3] = '1';
+    payload->length = 4U;
+}
+
+uds_read_did_result_t UDS_ReadDid_BuildPayload(
     uint16_t did,
-    uds_read_did_response_t *response)
+    uds_read_did_payload_t *payload)
 {
     mcuboot_image_version_t running_image_version = {0};
     factory_identity_t identity = {0};
-    uint8_t active_slot = SLOT_INVALID;
+    uint8_t active_slot;
 
-    UDS_ReadDid_SetResponseHeader(did, response);
+    if (payload == NULL || payload->data == NULL ||
+        payload->capacity < UDS_READ_DID_PAYLOAD_MAX_SIZE)
+    {
+        return UDS_READ_DID_RESULT_BUILD_FAILED;
+    }
+    payload->length = 0U;
+    memset(payload->data, 0, payload->capacity);
 
     switch (did)
     {
         case DID_BOOT_VERSION:
-            UDS_ReadDid_SetTextVersion(response, (uint8_t)'B');
+            set_text_version(payload, (uint8_t)'B');
             return UDS_READ_DID_RESULT_OK;
 
         case DID_APP_VERSION:
@@ -51,20 +60,15 @@ static uds_read_did_result_t UDS_ReadDid_BuildStandardResponse(
             {
                 return UDS_READ_DID_RESULT_BUILD_FAILED;
             }
-
-            response->data[3] = running_image_version.iv_major;
-            response->data[4] = running_image_version.iv_minor;
-            UDS_Msg_WriteBe16(
-                &response->data[5],
-                running_image_version.iv_revision);
-            UDS_Msg_WriteBe32(
-                &response->data[7],
-                running_image_version.iv_build_num);
-            response->length = 11U;
+            payload->data[0] = running_image_version.iv_major;
+            payload->data[1] = running_image_version.iv_minor;
+            write_be16(&payload->data[2], running_image_version.iv_revision);
+            write_be32(&payload->data[4], running_image_version.iv_build_num);
+            payload->length = 8U;
             return UDS_READ_DID_RESULT_OK;
 
         case DID_UPDATER_VERSION:
-            UDS_ReadDid_SetTextVersion(response, (uint8_t)'U');
+            set_text_version(payload, (uint8_t)'U');
             return UDS_READ_DID_RESULT_OK;
 
         case DID_ACTIVE_SLOT:
@@ -73,14 +77,14 @@ static uds_read_did_result_t UDS_ReadDid_BuildStandardResponse(
             {
                 return UDS_READ_DID_RESULT_BUILD_FAILED;
             }
-            response->data[3] = active_slot;
-            response->length = 4U;
+            payload->data[0] = active_slot;
+            payload->length = 1U;
             return UDS_READ_DID_RESULT_OK;
 
         case DID_CONFIRM_RESULT:
-            response->data[3] =
+            payload->data[0] =
                 (uint8_t)ImageConfirm_GetLastStartupResult();
-            response->length = 4U;
+            payload->length = 1U;
             return UDS_READ_DID_RESULT_OK;
 
         case DID_FACTORY_IDENTITY:
@@ -88,29 +92,14 @@ static uds_read_did_result_t UDS_ReadDid_BuildStandardResponse(
             {
                 return UDS_READ_DID_RESULT_BUILD_FAILED;
             }
-            UDS_Msg_WriteBe32(&response->data[3], identity.vendor_id);
-            UDS_Msg_WriteBe32(&response->data[7], identity.product_code);
-            UDS_Msg_WriteBe32(&response->data[11], identity.revision_number);
-            UDS_Msg_WriteBe32(&response->data[15], identity.serial_number);
-            response->length = 19U;
+            write_be32(&payload->data[0], identity.vendor_id);
+            write_be32(&payload->data[4], identity.product_code);
+            write_be32(&payload->data[8], identity.revision_number);
+            write_be32(&payload->data[12], identity.serial_number);
+            payload->length = 16U;
             return UDS_READ_DID_RESULT_OK;
 
         default:
             return UDS_READ_DID_RESULT_OUT_OF_RANGE;
     }
-}
-
-uds_read_did_result_t UDS_ReadDid_Build(
-    uint16_t did,
-    uds_read_did_response_t *response)
-{
-    if ((response == NULL) || (response->data == NULL)
-        || (response->capacity < UDS_READ_DID_RESPONSE_MAX_SIZE))
-    {
-        return UDS_READ_DID_RESULT_BUILD_FAILED;
-    }
-
-    response->length = 0U;
-    (void)memset(response->data, 0, response->capacity);
-    return UDS_ReadDid_BuildStandardResponse(did, response);
 }

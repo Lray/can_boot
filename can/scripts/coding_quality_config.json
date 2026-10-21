@@ -100,7 +100,6 @@
         "isotp.h",
         "uds_server.h",
         "uds_read_did.h",
-        "uds_msg.h",
         "download.h",
         "security_*.h"
       ],
@@ -141,7 +140,6 @@
         "isotp.h",
         "uds_server.h",
         "uds_read_did.h",
-        "uds_msg.h",
         "download.h",
         "security_*.h",
         "ulog*.h"
@@ -177,7 +175,6 @@
       "forbid_includes": [
         "uds_server.h",
         "uds_read_did.h",
-        "uds_msg.h",
         "download.h",
         "security_*.h"
       ],
@@ -273,8 +270,7 @@
         "download.h",
         "factory_identity.h",
         "image_confirm.h",
-        "sysflash.h",
-        "uds_msg.h"
+        "sysflash.h"
       ],
       "forbid_includes": [
         "main.h",
@@ -312,10 +308,6 @@
         {
           "regex": "\\bImageConfirm_(?!GetLastStartupResult\\b)[A-Za-z_]\\w*",
           "description": "confirmation operation outside the read-only query API"
-        },
-        {
-          "regex": "\\bUDS_Msg_(?!WriteBe(?:16|32)\\b)[A-Za-z_]\\w*",
-          "description": "wire operation outside response byte-order encoding"
         }
       ],
       "reason": "ReadDataByIdentifier payload construction is a read-only query leaf and cannot own dispatcher, transport, state mutation, or logging policy"
@@ -342,7 +334,7 @@
         "gateway_log.h",
         "security_access.h",
         "uds_read_did.h",
-        "uds_msg.h"
+        "iso14229.h"
       ],
       "forbid_includes": [
         "main.h",
@@ -365,53 +357,6 @@
       ],
       "allowed_project_includes": [],
       "reason": "the UDS public API uses only standard C types and cannot leak protocol or security contracts"
-    },
-    {
-      "name": "uds-wire-must-remain-a-leaf",
-      "from": [
-        "uds/uds_msg.c",
-        "uds/uds_msg.h"
-      ],
-      "allowed_project_includes": [
-        "uds_msg.h"
-      ],
-      "forbid_includes": [
-        "main.h",
-        "fdcan.h",
-        "boot_observation.h",
-        "image_confirm.h",
-        "CO_driver.h",
-        "can_network.h",
-        "confirm.h",
-        "download.h",
-        "flash_map.h",
-        "image_verify.h",
-        "isotp.h",
-        "security_access.h",
-        "security_token.h",
-        "security_token_cose.h",
-        "uds_server.h",
-        "uds_read_did.h"
-      ],
-      "forbidden_symbols": [
-        "Error_Handler",
-        "BootObservation_*",
-        "ImageConfirm_*",
-        "CAN_*",
-        "Confirm_*",
-        "Download_*",
-        "flash_area_*",
-        "ImageVerify_*",
-        "ISOTP_*",
-        "SecurityAccess_*",
-        "SecurityToken_*",
-        "security_*",
-        "UDS_Init",
-        "UDS_Poll",
-        "UDS_Dispatch",
-        "UDS_ReadDid_*"
-      ],
-      "reason": "UDS wire byte-order helpers are stateless leaves and cannot own protocol, domain, transport, logging, or hardware policy"
     },
     {
       "name": "can-driver-target-must-remain-below-protocol",

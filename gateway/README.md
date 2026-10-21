@@ -37,7 +37,7 @@ UDS `DID_FACTORY_IDENTITY` 校验升级前后的出厂身份。updater 不初始
 ## 架构边界
 
 - `src/transport/`：RAW CAN、ISO-TP 与传输回调边界。
-- `src/uds/`：UDS client 与 NRC/timeout 处理。
+- `src/uds/`：上游 `driftregion/iso14229` client 的 TransportOps 与产品 API 适配。
 - `src/security/`：Gateway 侧 SecurityAccess 编排与 Token 交互。
 - `src/package/`：读取升级包身份、实际长度和 MCUboot 声明版本；不作最终签名/启动裁决。
 - `src/ota/`：单次目标 MCU 更新入口、`0x34/0x36/0x37` 下载、reset 与确认。
@@ -46,6 +46,7 @@ UDS `DID_FACTORY_IDENTITY` 校验升级前后的出厂身份。updater 不初始
 - `apps/mcu_updater/`：接收 SWUpdate 镜像，向常驻网关查询 Node-ID，执行 OTA。
 - `third_party/CANopenLinux/`：固定版本原样 SocketCAN 驱动及必要头文件；项目配置位于 `src/CO_driver_conf.h`。
 - `third_party/CANopenNode/`：固定版本原版 `CO_fifo`、`CO_LSSmaster` 和 `CO_gateway_ascii`。
+- `../third_party/iso14229/`：固定版本、原样引入的 UDS client/server 核心，两端共用。
 - `tools/smoke/`：板端 smoke runner；不得在这里复制协议实现。
 
 完整边界定义见 `docs/module-boundaries.md`。
@@ -194,7 +195,7 @@ cd /opt/can-ota-gateway
 | MCU heartbeat | `0x700 + Node-ID`，DLC=`1`，`DATA[0]=0x05`（Alive），周期 `1000 ms` |
 | MCU offline 判定 | Gateway 接收端距最后一次有效 heartbeat 超过 `3000 ms`；不使用收发或错误计数 |
 | ISO-TP | `BS=8`，`STmin=2 ms` |
-| UDS timing | 初始默认 `P2=50 ms`、`P2*=5000 ms`；每次 `0x10` 后以 MCU 公布的参数为准（P2* wire unit=10 ms），诊断通信完成后重启 S3 |
+| UDS timing | 上游默认 `P2=50 ms`、`P2*=5000 ms`、`S3=5100 ms`；每次 `0x10` 后客户端采用 MCU 公布的 P2/P2*，Gateway 在长传输中每 2000 ms 发 TesterPresent |
 | TransferData payload | 256 bytes |
 | maxNumberOfBlockLength | 258 |
 | RequestDownload | 标准 `34 00 44 <address[4]> <size[4]>` / `74 20 01 02`；MCU 自动选择 inactive slot |

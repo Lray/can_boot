@@ -12,7 +12,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     enable_testing()
 endif()
 
-set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
@@ -22,6 +22,7 @@ set(IDENTITY_DIR   ${CMAKE_CURRENT_SOURCE_DIR}/../identity)
 set(CORE_INC_DIR   ${CMAKE_CURRENT_SOURCE_DIR}/../Core/Inc)
 set(REPO_INC_DIR   ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 set(CANOPENNODE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/CANopenNode)
+set(ISO14229_DIR   ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/iso14229)
 set(STORAGE_DIR    ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/CanOpenSTM32/CANopenNode_STM32)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/isotp.cmake)
@@ -38,7 +39,7 @@ set(TEST_MODULE_INC_DIRS
 
 function(configure_host_test target)
     set_target_properties(${target} PROPERTIES
-        C_STANDARD 99
+        C_STANDARD 11
         C_STANDARD_REQUIRED ON
         C_EXTENSIONS OFF
     )
@@ -56,14 +57,6 @@ function(configure_host_test target)
     endif()
     add_test(NAME ${target} COMMAND ${target})
 endfunction()
-
-# ---- uds_msg host test ----
-add_executable(uds_msg_host_test
-    uds_msg_host_test.c
-    ${UDS_DIR}/uds_msg.c
-)
-target_include_directories(uds_msg_host_test PRIVATE ${TEST_MODULE_INC_DIRS})
-configure_host_test(uds_msg_host_test)
 
 # ---- raw ULog CAN wire host test ----
 add_executable(ulog_can_wire_host_test
@@ -114,7 +107,7 @@ configure_host_test(download_host_test)
 add_executable(uds_server_host_test
     uds_server_host_test.c
     ${UDS_DIR}/uds_server.c
-    ${UDS_DIR}/uds_msg.c
+    ${ISO14229_DIR}/iso14229.c
 )
 target_include_directories(uds_server_host_test BEFORE PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/fakes
@@ -125,13 +118,22 @@ target_include_directories(uds_server_host_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../download
     ${CMAKE_CURRENT_SOURCE_DIR}/../security
     ${TRANSPORT_DIR}
+    ${ISO14229_DIR}
 )
+target_compile_definitions(uds_server_host_test PRIVATE
+    UDS_SYS=UDS_SYS_CUSTOM
+    UDS_TP_MTU=512
+)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    set_source_files_properties(${ISO14229_DIR}/iso14229.c PROPERTIES
+        COMPILE_OPTIONS "-Wno-pedantic"
+    )
+endif()
 configure_host_test(uds_server_host_test)
 
 add_executable(uds_read_did_host_test
     uds_read_did_host_test.c
     ${UDS_DIR}/uds_read_did.c
-    ${UDS_DIR}/uds_msg.c
 )
 target_include_directories(uds_read_did_host_test PRIVATE
     ${TEST_MODULE_INC_DIRS}
