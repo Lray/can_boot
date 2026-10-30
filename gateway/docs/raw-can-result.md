@@ -4,6 +4,9 @@ Status: `RAW CAN 双端通信通过`
 
 Date: 2026-06-23
 
+This is pre-LSS historical evidence for the original single-node fixture. Its
+fixed CAN IDs are not the current product addressing contract.
+
 Observed interface:
 
 - Linux CAN network interface: `awlink0`
@@ -15,7 +18,11 @@ Observed interface:
 Observed MCU traffic:
 
 - `candump -tz awlink0` continuously receives MCU heartbeat standard frame `0x700`.
-- Heartbeat payload starts with `A5`.
+- Current heartbeat wire contract is the standard frame `0x700`, DLC `1`, with
+  `DATA[0]=0x05` (Alive). It carries no CAN traffic counters.
+- Gateway consumers determine MCU liveness from the last valid heartbeat
+  receive time and declare it offline after `3000 ms`, rather than inspecting
+  RX, TX, or error counts.
 
 Observed request/response:
 

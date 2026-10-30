@@ -10,7 +10,8 @@ LogFrameDecodeResult_t log_frame_decode(
     if (raw_frame == NULL || decoded_frame == NULL) {
         return LOG_FRAME_MALFORMED;
     }
-    if (raw_frame->can_id != MCU_ULOG_CAN_ID) {
+    if (raw_frame->can_id < MCU_ULOG_CAN_ID_MIN ||
+        raw_frame->can_id > MCU_ULOG_CAN_ID_MAX) {
         return LOG_FRAME_OTHER_CAN_ID;
     }
     if (raw_frame->can_dlc < MCU_ULOG_FRAME_HEADER_SIZE ||

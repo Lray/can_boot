@@ -9,7 +9,7 @@ bool ULogCanWire_BuildFrame(
     const char *log,
     uint16_t log_length,
     uint8_t fragment_index,
-    can_frame_t *frame)
+    CO_CANtx_t *frame)
 {
     uint16_t offset;
     uint16_t remaining;
@@ -47,9 +47,8 @@ bool ULogCanWire_BuildFrame(
         control |= MCU_LOG_CAN_END;
     }
 
-    *frame = (can_frame_t){0};
-    frame->id = CAN_ID_MCU_ULOG;
-    frame->dlc = (uint8_t)(1U + payload_length);
+    (void)memset(frame->data, 0, sizeof(frame->data));
+    frame->DLC = (uint8_t)(1U + payload_length);
     frame->data[0] = control;
     if (payload_length > 0U)
     {

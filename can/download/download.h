@@ -3,7 +3,6 @@
 
 #include <stdint.h>
 
-#include "shared/payload_id_format.h"
 
 #define DOWNLOAD_MAX_TRANSFER_PAYLOAD 256U
 #define DOWNLOAD_MAX_BLOCK_LENGTH 258U
@@ -13,6 +12,7 @@ typedef enum
     DOWNLOAD_RESULT_OK = 0,
     DOWNLOAD_RESULT_INCORRECT_LENGTH,
     DOWNLOAD_RESULT_OUT_OF_RANGE,
+    DOWNLOAD_RESULT_TRANSFER_SUSPENDED,
     DOWNLOAD_RESULT_SEQUENCE_ERROR,
     DOWNLOAD_RESULT_WRONG_BLOCK_SEQUENCE,
     DOWNLOAD_RESULT_REJECTED,
@@ -30,19 +30,15 @@ typedef enum
 
 /** Clears the RAM-resident download session. */
 void Download_Init(void);
+/** Abort the current diagnostic download without erasing programmed data. */
+void Download_Abort(void);
 
 /**
- * Prepare a resumable image transfer and start erasing its target suffix.
+ * Select the inactive slot and start erasing it.
  *
- * The request identity is the SHA-256 of the complete MCUboot image byte
- * stream, supplied by the unlocked UDS programming session.
- *
- * @param payload_id Exact image byte-stream SHA-256; must be non-NULL.
- * @param image_size Exact payload length; must fit in the inactive slot.
+ * Erasing needs no request parameters.
  */
-download_result_t Download_Prepare(
-    const uint8_t payload_id[PAYLOAD_ID_SIZE],
-    uint32_t image_size);
+download_result_t Download_Prepare(void);
 
 /** Advance the active Flash erase job by one sector. */
 void Download_Poll(void);
@@ -51,20 +47,24 @@ void Download_Poll(void);
 download_preparation_status_t Download_GetPreparationStatus(void);
 
 /**
- * Validate a prepared image identity and open the data-transfer phase.
+ * Validate the requested image against the prepared slot and open the
+ * data-transfer phase.
+ *
+ * @param image_size Exact payload length; must fit in the inactive slot.
  */
-download_result_t Download_Begin(
-    const uint8_t payload_id[PAYLOAD_ID_SIZE],
-    uint32_t image_size,
-    uint8_t *target_slot_out,
-    uint32_t *resume_offset_out);
+download_result_t Download_Begin(uint32_t image_size);
 
 /** Program one validated TransferData block into the inactive slot. */
 download_result_t Download_Transfer(uint8_t block_sequence_counter,
                                     const uint8_t *payload,
                                     uint16_t length);
 
-/** Finish a complete transfer and persist its terminal transfer checkpoint. */
+/**
+ * Finish a complete transfer.
+ *
+ * @return OK when the whole image was received, or SEQUENCE_ERROR when no
+ *         transfer is active (ISO 14229-1 0x37 -> NRC 0x24).
+ */
 download_result_t Download_Exit(void);
 
 #endif /* DOWNLOAD_H */

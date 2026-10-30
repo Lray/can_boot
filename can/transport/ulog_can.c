@@ -1,6 +1,5 @@
 #include "ulog_can.h"
 
-#include "can_driver.h"
 #include "ulog_can_wire.h"
 
 #include <rtthread.h>
@@ -25,6 +24,8 @@ static struct rt_rbb_blk s_record_blocks[ULOG_CAN_QUEUE_CAPACITY];
 static rt_ubase_t s_record_storage[ULOG_CAN_QUEUE_STORAGE_WORDS];
 static rt_rbb_blk_t s_active_record;
 static uint8_t s_active_fragment;
+static CO_CANmodule_t *s_can_module;
+static CO_CANtx_t *s_tx_buffer;
 
 static void ULogCan_Enqueue(
     struct ulog_backend *backend,
@@ -56,8 +57,15 @@ static void ULogCan_Enqueue(
     rt_rbb_blk_put(block);
 }
 
-bool ULogCan_Init(void)
+bool ULogCan_Init(CO_CANmodule_t *CANmodule, CO_CANtx_t *tx_buffer)
 {
+    if ((CANmodule == NULL) || (tx_buffer == NULL))
+    {
+        return false;
+    }
+
+    s_can_module = CANmodule;
+    s_tx_buffer = tx_buffer;
     if (s_ulog_can_registered)
     {
         return true;
@@ -81,9 +89,7 @@ bool ULogCan_Init(void)
 
 bool ULogCan_Poll(void)
 {
-    can_frame_t frame = {0};
-
-    if (!s_ulog_can_registered)
+    if (!s_ulog_can_registered || s_tx_buffer->bufferFull)
     {
         return false;
     }
@@ -101,7 +107,7 @@ bool ULogCan_Poll(void)
     if (!ULogCanWire_BuildFrame((const char *)rt_rbb_blk_buf(s_active_record),
                                 (uint16_t)rt_rbb_blk_size(s_active_record),
                                 s_active_fragment,
-                                &frame))
+                                s_tx_buffer))
     {
         rt_rbb_blk_free(&s_record_queue, s_active_record);
         s_active_record = RT_NULL;
@@ -109,13 +115,13 @@ bool ULogCan_Poll(void)
     }
 
     /* A full Tx FIFO leaves the active fragment untouched for the next poll. */
-    if (CAN_SendFrame(&frame) != CAN_ERROR_NO)
+    if (CO_CANsend(s_can_module, s_tx_buffer) != CO_ERROR_NO)
     {
         return false;
     }
 
     s_active_fragment++;
-    if ((frame.data[0] & MCU_LOG_CAN_END) != 0U)
+    if ((s_tx_buffer->data[0] & MCU_LOG_CAN_END) != 0U)
     {
         rt_rbb_blk_free(&s_record_queue, s_active_record);
         s_active_record = RT_NULL;

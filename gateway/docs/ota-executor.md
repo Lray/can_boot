@@ -4,30 +4,43 @@
 is:
 
 ```text
-SWUpdate -> mcu-updater -> mcu_update_run_job -> ota_executor
-         -> package load/structural validation -> ota_executor -> typed UDS
+SWUpdate -> mcu-updater -> official ASCII -> LSS_gateway
+                       <- Node-ID <- Fastscan/select/query/deselect
+                       -> mcu_update_run_image
+                       -> package load/structural validation -> ota_executor -> typed UDS
 ```
 
-The updater loads and validates image metadata and length,
-and image SHA once before the executor is called. This is a transfer-boundary
+After receiving the image, the updater sends `lss_allnodes 100 2 1`, identity
+selection, active Node-ID inquiry and deselection in one exclusive gateway socket
+session. It requires Node-ID `1..127` before calling `mcu_update_run_image()`.
+The resident gateway initializes the official Gateway ASCII and LSS Master modules
+and processes their event loop; image reception and OTA remain in
+the updater process.
+
+The updater loads and validates image metadata and length once before the
+executor is called. This is a transfer-boundary
 format/integrity check, not a signature, TLV, rollback, or boot-authenticity
 decision. MCUboot on the MCU owns those final decisions.
 
-`ota_executor` then owns, in one sequence: stable MCU observation; extended
-and programming session entry; SecurityAccess authorization for entering OTA;
-download-preparation routine; extended `0x34` identity binding/resume decision; `0x36/0x37` transfer; hard
+`ota_executor` then owns, in one sequence: stable MCU observation; programming
+session entry; SecurityAccess authorization for entering OTA;
+the EraseMemory routine; standard `0x34` download request; `0x36/0x37` transfer; hard
 reset; reconnect; and post-reset classification.
 
-`resume_transfer` is an internal transfer helper, not another OTA entry. It
+`transfer` is an internal transfer helper, not another OTA entry. It
 assumes a loaded package and an already-open, authorized OTA session. It
-passes the manifest's complete-image `image_sha256` unchanged in the extended
-`0x31 F001` preparation request and result polling, then sends `0x34`, validates the returned target and durable cursor, and executes the
-remaining transfer. It does not enter a session or recompute the payload hash.
+starts the `0x31 FF00` EraseMemory routine and polls its results, then sends
+`0x34` carrying only the standard address and size fields, and executes the
+full transfer. The expected target slot for post-reset verification is derived
+from the pre-update active slot; the MCU selects its inactive slot for writing.
+The helper never retries an ambiguous TransferData timeout. The upstream UDS
+server rejects a repeated or skipped BSC with NRC `0x24` and resets its transfer
+state, so recovery starts a new erase/download sequence.
 
-`download` is likewise a transfer helper: it owns target selection, journal
-matching, durable cursor handling, byte count, block sequence, and terminal
-state for `0x31/0x34/0x36/0x37`. The typed UDS client owns the extension's wire
-encoding. `0x31 F001` owns erase preparation; `0x34/0x36/0x37` do not erase Flash.
+`download` is likewise a transfer helper: it owns target selection, byte count,
+block sequence, and terminal state for `0x31/0x34/0x36/0x37`. The typed UDS
+client owns the routine's wire encoding. `0x31 FF00` (EraseMemory) owns Flash
+erase; `0x34/0x36/0x37` do not erase Flash.
 
 The post-reset `DID_APP_VERSION` observation means the version of the image
 currently running on the MCU. Together with active slot and the startup
@@ -35,7 +48,7 @@ confirmation result, it classifies confirmed activation, rollback, failed
 confirmation, or an indeterminate outcome. It is a state observation; it is
 not a Gateway boot verifier.
 
-There are no standalone download, resume, or boot-handoff smoke executables.
+There are no standalone download, transfer, or boot-handoff smoke executables.
 RAW CAN and minimal UDS probes remain for their own transport/diagnostic
 boundaries. OTA acceptance requires the real SWUpdate-to-updater path on a
 board/HIL setup, including a valid package, SecurityAccess, reset/reconnect,

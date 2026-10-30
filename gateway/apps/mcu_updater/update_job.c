@@ -1,19 +1,14 @@
 #include "update_job.h"
 
-#include <fcntl.h>
-#include <limits.h>
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
 #include "isotp_channel.h"
-#include "package_input.h"
 #include "package_metadata.h"
 #include "profile.h"
-#include "token_signer_client.h"
 #include "uds_client.h"
 #include "util.h"
 
@@ -105,54 +100,6 @@ static void disarm_update_watchdog(McuUpdateWatchdog_t *watchdog)
     memset(watchdog, 0, sizeof(*watchdog));
 }
 
-static int open_input_directory(const char *job_dir)
-{
-    struct stat job_stat;
-    struct stat input_stat;
-    int job_fd;
-    int input_fd;
-
-    job_fd = open(job_dir, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-    if (job_fd < 0 || fstat(job_fd, &job_stat) != 0 || !S_ISDIR(job_stat.st_mode) ||
-        job_stat.st_uid != geteuid() || (job_stat.st_mode & 0022u) != 0u)
-    {
-        if (job_fd >= 0)
-        {
-            (void)close(job_fd);
-        }
-        return -1;
-    }
-    input_fd = openat(job_fd, PACKAGE_INPUT_DIRECTORY,
-                      O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-    (void)close(job_fd);
-    if (input_fd < 0 || fstat(input_fd, &input_stat) != 0 || !S_ISDIR(input_stat.st_mode) ||
-        input_stat.st_uid != geteuid() || (input_stat.st_mode & 0777u) != 0700u)
-    {
-        if (input_fd >= 0)
-        {
-            (void)close(input_fd);
-        }
-        return -1;
-    }
-    return input_fd;
-}
-
-static int fixed_image_path(int input_fd, char *path_out, size_t path_cap)
-{
-    struct stat image_stat;
-    int length;
-
-    if (fstatat(input_fd, PACKAGE_IMAGE_NAME, &image_stat, AT_SYMLINK_NOFOLLOW) != 0 ||
-        !S_ISREG(image_stat.st_mode) || image_stat.st_nlink != 1 ||
-        image_stat.st_uid != geteuid() || (image_stat.st_mode & 0777u) != 0400u)
-    {
-        return -1;
-    }
-    length = snprintf(path_out, path_cap, "/proc/self/fd/%d/%s", input_fd,
-                      PACKAGE_IMAGE_NAME);
-    return length > 0 && (size_t)length < path_cap ? 0 : -1;
-}
-
 static int reconnect_isotp(void *ctx, UdsClient *client)
 {
     McuReconnectContext_t *reconnect = (McuReconnectContext_t *)ctx;
@@ -167,22 +114,20 @@ static int reconnect_isotp(void *ctx, UdsClient *client)
     return 0;
 }
 
-int mcu_update_run_job(const char *job_dir, const McuUpdateConfig_t *config,
-                       McuUpdateResult_t *result_out)
+int mcu_update_run_image(int image_fd, const McuUpdateConfig_t *config,
+                         McuUpdateResult_t *result_out)
 {
-    TokenSignerClient_t signer = {0};
     OtaExecutorConfig_t executor_config = {0};
     McuReconnectContext_t reconnect;
     OtaPackage_t package = {0};
     IsotpChannel channel = {-1};
     UdsClient client;
     McuUpdateWatchdog_t watchdog;
-    char image_path[PATH_MAX] = {0};
-    int input_fd = -1;
     int rc = MCU_UPDATE_EXIT_PACKAGE_POLICY;
 
-    if (job_dir == NULL || config == NULL || result_out == NULL ||
-        config->can_ifname == NULL || config->signer_endpoint == NULL)
+    if (image_fd < 0 || config == NULL || result_out == NULL ||
+        config->can_ifname == NULL || config->token_tee == NULL ||
+        config->node_id < CAN_NODE_ID_MIN || config->node_id > CAN_NODE_ID_MAX)
     {
         return MCU_UPDATE_EXIT_INTERNAL;
     }
@@ -191,29 +136,16 @@ int mcu_update_run_job(const char *job_dir, const McuUpdateConfig_t *config,
     {
         return MCU_UPDATE_EXIT_INTERNAL;
     }
-    input_fd = open_input_directory(job_dir);
-    if (input_fd < 0 || fixed_image_path(input_fd, image_path, sizeof(image_path)) != 0 ||
-        ota_package_load_validate(image_path, &package) != 0)
+    if (ota_package_load_validate(image_fd, &package) != 0)
     {
         goto out;
     }
-    if (config->signer_uid == 0u || config->signer_gid == 0u ||
-        config->signer_socket_gid == 0u)
-    {
-        rc = MCU_UPDATE_EXIT_SECURITY_ACCESS;
-        goto out;
-    }
-    signer.endpoint = config->signer_endpoint;
-    signer.expected_peer_uid = config->signer_uid;
-    signer.expected_peer_gid = config->signer_gid;
-    signer.expected_socket_uid = config->signer_uid;
-    signer.expected_socket_gid = config->signer_socket_gid;
-    signer.expected_socket_mode = 0660u;
-    signer.timeout_ms = config->signer_timeout_ms != 0u
-                            ? config->signer_timeout_ms
-                            : TOKEN_SIGNER_DEFAULT_TIMEOUT_MS;
-
-    isotp_channel_default_config(&reconnect.config);
+    reconnect.config = (IsotpChannelConfig){
+        .request_id = CAN_ID_UDS_REQUEST(config->node_id),
+        .response_id = CAN_ID_UDS_RESPONSE(config->node_id),
+        .block_size = ISOTP_BLOCK_SIZE,
+        .stmin_raw = ISOTP_STMIN_MS,
+    };
     reconnect.channel = &channel;
     reconnect.ifname = config->can_ifname;
     if (isotp_channel_open(&channel, config->can_ifname, &reconnect.config) != 0)
@@ -226,7 +158,7 @@ int mcu_update_run_job(const char *job_dir, const McuUpdateConfig_t *config,
     executor_config.client = &client;
     executor_config.reconnect = reconnect_isotp;
     executor_config.reconnect_ctx = &reconnect;
-    executor_config.signer = &signer;
+    executor_config.token_tee = config->token_tee;
     result_out->has_executor_result = 1;
     result_out->terminal_state = ota_executor_run(&executor_config, &package,
                                                    &result_out->executor);
@@ -238,10 +170,6 @@ out:
     disarm_update_watchdog(&watchdog);
     isotp_channel_close(&channel);
     ota_package_release(&package);
-    if (input_fd >= 0)
-    {
-        (void)close(input_fd);
-    }
     return rc;
 }
 

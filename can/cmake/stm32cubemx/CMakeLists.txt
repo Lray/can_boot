@@ -126,6 +126,6 @@ target_link_libraries(${CMAKE_PROJECT_NAME} ${MX_LINK_LIBS})
 set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES ADDITIONAL_CLEAN_FILES ${CMAKE_PROJECT_NAME}.map)
 
 # Validate that STM32CubeMX code is compatible with C standard
-if(CMAKE_C_STANDARD LESS 99)
+if(CMAKE_C_STANDARD STREQUAL "90")
     message(FATAL_ERROR "Generated code requires C99 or higher")
 endif()

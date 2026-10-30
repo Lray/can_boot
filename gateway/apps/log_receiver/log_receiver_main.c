@@ -12,8 +12,8 @@
 int main(int argc, char **argv)
 {
     const struct can_filter filter = {
-        .can_id = MCU_ULOG_CAN_ID,
-        .can_mask = CAN_SFF_MASK,
+        .can_id = MCU_ULOG_CAN_ID_MIN,
+        .can_mask = CAN_ID_MCU_ULOG_FILTER,
     };
     LogReceiver_t receiver;
     LogReceiverStats_t stats = {0};

@@ -3,6 +3,7 @@
 #include <time.h>
 
 #include "byte_order.h"
+#include "package_input.h"
 #include "profile.h"
 #include "util.h"
 
@@ -11,16 +12,26 @@
 
 static int read_snapshot(UdsClient *client, McuSnapshot_t *snapshot_out)
 {
-    uint8_t value[8] = {0};
+    uint8_t value[OTA_ENVELOPE_IDENTITY_SIZE] = {0};
     size_t value_len = 0u;
     uint64_t start = util_monotonic_ms();
     int rc = 0;
+
+    rc = uds_read_did(client, DID_FACTORY_IDENTITY, value, sizeof(value), &value_len);
+    if (rc != 0 || value_len != OTA_ENVELOPE_IDENTITY_SIZE)
+    {
+        return rc != 0 ? rc : UDS_ERR_RESP_TOO_SHORT;
+    }
+    snapshot_out->identity.vendor_id = byte_order_get_u32_be(value);
+    snapshot_out->identity.product_code = byte_order_get_u32_be(value + 4u);
+    snapshot_out->identity.revision_number = byte_order_get_u32_be(value + 8u);
+    snapshot_out->identity.serial_number = byte_order_get_u32_be(value + 12u);
 
     rc = uds_read_did(client, DID_ACTIVE_SLOT, value, sizeof(value),
                       &value_len);
     if (rc != 0 || value_len != 1u || value[0] > 1u)
     {
-        return rc != 0 ? rc : UDS_ERR_MALFORMED_RESPONSE;
+        return rc != 0 ? rc : UDS_ERR_RESP_TOO_SHORT;
     }
     snapshot_out->active_slot = value[0];
 
@@ -28,7 +39,7 @@ static int read_snapshot(UdsClient *client, McuSnapshot_t *snapshot_out)
                       &value_len);
     if (rc != 0 || value_len != MCUBOOT_IMAGE_VERSION_SIZE_BYTES)
     {
-        return rc != 0 ? rc : UDS_ERR_MALFORMED_RESPONSE;
+        return rc != 0 ? rc : UDS_ERR_RESP_TOO_SHORT;
     }
     snapshot_out->app_version.iv_major = value[0];
     snapshot_out->app_version.iv_minor = value[1];
@@ -39,7 +50,7 @@ static int read_snapshot(UdsClient *client, McuSnapshot_t *snapshot_out)
                       &value_len);
     if (rc != 0 || value_len != 1u)
     {
-        return rc != 0 ? rc : UDS_ERR_MALFORMED_RESPONSE;
+        return rc != 0 ? rc : UDS_ERR_RESP_TOO_SHORT;
     }
     snapshot_out->confirm_result = value[0];
     if (util_monotonic_ms() - start > OTA_SNAPSHOT_MAX_SPAN_MS)
@@ -70,7 +81,8 @@ int read_snapshot_twice(UdsClient *client, UdsReconnectFn_t reconnect,
                 return UDS_ERR_TIMEOUT;
             }
             rc = read_snapshot(client, &second);
-            if (rc == 0 && first.active_slot == second.active_slot &&
+            if (rc == 0 && factory_identity_equal(&first.identity, &second.identity) &&
+                first.active_slot == second.active_slot &&
                 mcuboot_image_version_equal(&first.app_version,
                                             &second.app_version) &&
                 first.confirm_result == second.confirm_result)

@@ -4,9 +4,9 @@
 
 | Domain | Private material location | Public/verifier location | Sole use |
 | --- | --- | --- | --- |
-| MCUboot image signing | Offline release key | STM32 MCUboot trust configuration | Sign the final `image.bin` with MCUboot `imgtool`. |
+| MCUboot image signing | Offline release key | STM32 MCUboot trust configuration | Sign the final `image.bin` with the official `tools/image.py`. |
 | SWU container signing | Offline RSA-PSS release key | `/etc/mcu-update/trust/swu-release.pem` | Sign `sw-description`; SWUpdate verifies it. |
-| MCU SecurityAccess signing | `ecc_key` in T527 keybox / OP-TEE secure world | MCU P-256 public key and daemon compiled key | Sign the fresh MCU seed challenge. |
+| MCU SecurityAccess token | `ecc_key` in T527 keybox / OP-TEE secure world | MCU P-256 public key and updater compiled key | Issue the fixed token for a fresh MCU seed challenge. |
 | T527 secure boot and keybox root | Secure boot keys, ROTPK efuse, SSK efuse | Boot ROM / secure boot chain | Authenticate secure firmware and protect keybox storage. |
 
 These keys are unrelated. A key from one row must never be used in another
@@ -23,17 +23,15 @@ seed into a password and never loads the P-256 private key:
 ```text
 MCU seed challenge
   -> gateway OTA updater
-  -> token-signer-daemon SOCK_SEQPACKET request
-  -> OP-TEE ECDSA TA: TEE_keybox_load("ecc_key")
-  -> raw P-256 signature
-  -> COSE Sign1 token
+  -> dedicated OP-TEE TA: TEE_keybox_load("ecc_key")
+  -> TA constructs and signs the fixed COSE Sign1 token
   -> MCU verifies it and permits the existing download protocol
 ```
 
 `ecc_key` is raw big-endian `d(32) || x(32) || y(32)`, exactly 96 bytes. It is
-not PEM, DER, an MCUboot key, or a SWU key. The TA accepts a SHA-256 digest and
-returns raw `r || s`; `token-signer-daemon` validates the TA public key at
-startup and rejects a mismatched keybox.
+not PEM, DER, an MCUboot key, or a SWU key. The TA accepts only an exact
+four-byte SecurityAccess seed and returns the complete token. `mcu-updater`
+validates the TA public key at startup and rejects a mismatched keybox.
 
 ## Correct production provisioning path
 
@@ -69,7 +67,7 @@ In an approved offline/HSM process, prepare the MCUboot signing key, SWU
 RSA-PSS key, `ecc_key.bin`, secure-boot certificate chain, matching
 `rotpk.bin`, and the chip-lot SSK policy. Keep private material outside the
 SDK tree. Verify that `ecc_key.bin` is 96 bytes and that its public `x || y`
-matches the daemon's compiled trust constant. Record key IDs, public
+matches the updater's compiled trust constant. Record key IDs, public
 fingerprints, operator, board serial, tool version, and package hashes in the
 controlled manufacturing record, never private bytes.
 
@@ -98,22 +96,21 @@ ROTPK/SSK/keybox flow. Use DragonSN for factory provisioning.
 
 Deploy only public/runtime artifacts: OP-TEE device nodes, `tee-supplicant`,
 matching `libteec`, TA
-`724b12aa-6e74-4779-bf3a-1580a076fed3.ta` in `/lib/optee_armtz/`, the signer
-service, and the SWU public trust PEM. The functional proof is that the signer
-opens the TA, obtains the expected public key, creates its peer-checked socket,
-and successfully issues a test token. Preserve pass/fail and public
+`724b12aa-6e74-4779-bf3a-1580a076fed3.ta` in `/lib/optee_armtz/`,
+`mcu-updater`, and the SWU public trust PEM. The functional proof is that the
+updater opens the TA, obtains the expected public key, and successfully issues
+a test token through `libteec`. Preserve pass/fail and public
 fingerprints only; never log a seed, signature, token, or key material.
 
 ## Release gates
 
-- `can/scripts/make_mcu_mcuboot_bundle.py` is the sole image builder. It calls
-  MCUboot `imgtool`, verifies header/TLV/trailer invariants, and creates the
-  final full-slot `image.bin`.
-- `gateway/scripts/build_mcu_hawkbit_swu_wsl.sh` is the sole SWU builder. It
-  follows official SWUpdate RSA-PSS + CPIO-CRC ordering and validates with
-  `swupdate -c`.
+- `tools/image.py` is the sole MCU image implementation and must remain the
+  traceable official MCUboot source.
+- `swugenerator` is the sole SWU creation and signing tool. Its installed
+  `--help` output is the command contract; project scripts must not reimplement
+  signing or CPIO assembly.
 - SWUpdate's signed description binds the final `image.bin` digest. The
   hardened Remote Handler forwards only after complete verification; the
   receiver and update engine derive the digest again for transport consistency
-  and resume identity. MCUboot retains the final signature/security-counter
+  and payload identity. MCUboot retains the final signature/security-counter
   decision.

@@ -16,8 +16,8 @@ void isotp_channel_default_config(IsotpChannelConfig *config)
     if (config == NULL) {
         return;
     }
-    config->request_id = CAN_ID_UDS_REQUEST;
-    config->response_id = CAN_ID_UDS_RESPONSE;
+    config->request_id = CAN_ID_UDS_REQUEST(CAN_NODE_ID_MIN);
+    config->response_id = CAN_ID_UDS_RESPONSE(CAN_NODE_ID_MIN);
     config->block_size = ISOTP_BLOCK_SIZE;
     config->stmin_raw = ISOTP_STMIN_MS;
 }

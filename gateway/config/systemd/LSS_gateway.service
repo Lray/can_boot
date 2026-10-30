@@ -1,0 +1,17 @@
+[Unit]
+Description=LSS ASCII command gateway
+Before=mcu-updater.service
+ConditionPathExists=/run/media/mmcblk0p6/mcu-update/bin/LSS_gateway
+ConditionPathIsMountPoint=/run/media/mmcblk0p6
+
+[Service]
+Type=simple
+RuntimeDirectory=LSS_gateway
+RuntimeDirectoryMode=0750
+ExecStart=/run/media/mmcblk0p6/mcu-update/bin/LSS_gateway
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

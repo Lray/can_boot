@@ -7,8 +7,8 @@ cmake_minimum_required(VERSION 3.22)
 # User is free to modify the file as much as necessary
 #
 
-# The generated Cube/HAL sources use C99 constructs but do not require C11.
-set(CMAKE_C_STANDARD 99)
+# driftregion/iso14229 uses C11 static assertions in its official amalgamation.
+set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
@@ -19,9 +19,10 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 # Application image placement. Slot presets override these values for MCUboot
-# payloads, while the ordinary Debug and Release presets retain full flash.
+# payloads. Ordinary Debug and Release builds stop before communication
+# configuration storage so no linked image can contain persistent tail pages.
 set(CAN_FLASH_ORIGIN "0x08000000" CACHE STRING "Flash origin for the application image")
-set(CAN_FLASH_LENGTH "4096K" CACHE STRING "Flash length available to the application image")
+set(CAN_FLASH_LENGTH "0x1F2000" CACHE STRING "Flash length available to the application image")
 
 # Set the project name
 set(CMAKE_PROJECT_NAME Can)
@@ -90,17 +91,19 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     boot/flash_map.c
     download/download.c
     download/erase_job.c
-    ../shared/crc32.c
+    identity/factory_identity.c
+    ../third_party/CANopenNode/305/CO_LSSslave.c
+    ../third_party/CanOpenSTM32/CANopenNode_STM32/CO_storageBlank.c
     security/security_access.c
     security/security_access_entropy_stm32.c
     security/security_token.c
     security/security_token_cose.c
     security/security_crypto_port.c
-    transport/can_driver_stm32.c
+    transport/CO_driver_STM32.c
     transport/isotp_stm32.c
     transport/ulog_can.c
     transport/ulog_can_wire.c
-    uds/uds_msg.c
+    ../third_party/iso14229/iso14229.c
     uds/uds_read_did.c
     uds/uds_server.c
     watchdog/watchdog.c
@@ -111,6 +114,10 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/..
     ${CMAKE_CURRENT_SOURCE_DIR}/boot
     ${CMAKE_CURRENT_SOURCE_DIR}/download
+    ${CMAKE_CURRENT_SOURCE_DIR}/identity
+    ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/CANopenNode
+    ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/CanOpenSTM32/CANopenNode_STM32
+    ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/iso14229
     ${CMAKE_CURRENT_SOURCE_DIR}/security
     ${CMAKE_CURRENT_SOURCE_DIR}/transport
     ${CMAKE_CURRENT_SOURCE_DIR}/uds
@@ -119,7 +126,14 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
 
 # Add project symbols (macros)
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user defined symbols
+    _POSIX_C_SOURCE=200809L
+    UDS_SYS=UDS_SYS_CUSTOM
+    UDS_TP_ISOTP_C
+    ISO_TP_DEFAULT_BLOCK_SIZE=8U
+    ISO_TP_DEFAULT_ST_MIN_US=2000U
+    ISO_TP_DEFAULT_RESPONSE_TIMEOUT_US=1000000U
+    ISO_TP_FRAME_PADDING
+    ISO_TP_FRAME_PADDING_VALUE=0x00
 )
 
 # Remove wrong libob.a library dependency when using cpp files
@@ -131,7 +145,6 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     qbor
     tcose
     tinycrypt
-    simon_cahill::isotp_c
 )
 
 # Post-build: generate .bin and .hex for STM32CubeIDE/CubeProgrammer and

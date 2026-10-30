@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#define UDS_READ_DID_RESPONSE_MAX_SIZE 98U
+#define UDS_READ_DID_PAYLOAD_MAX_SIZE 16U
 
 typedef enum
 {
@@ -17,19 +17,10 @@ typedef struct
     uint8_t *data;
     uint16_t capacity;
     uint16_t length;
-} uds_read_did_response_t;
+} uds_read_did_payload_t;
 
-/**
- * Build a complete positive ReadDataByIdentifier response for one DID.
- *
- * @param did A validated 16-bit data identifier from a 0x22 request.
- * @param response Caller-owned response buffer and its writable capacity.
- * @return OK on success, OUT_OF_RANGE for an unsupported DID, or
- *         BUILD_FAILED when the response cannot be built.
- * @pre response->data has at least UDS_READ_DID_RESPONSE_MAX_SIZE bytes.
- */
-uds_read_did_result_t UDS_ReadDid_Build(
+uds_read_did_result_t UDS_ReadDid_BuildPayload(
     uint16_t did,
-    uds_read_did_response_t *response);
+    uds_read_did_payload_t *payload);
 
-#endif /* UDS_READ_DID_H */
+#endif

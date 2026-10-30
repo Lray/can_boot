@@ -59,13 +59,22 @@ static struct flash_area boot_user =
     FLASH_AREA_BOOT_USER_SIZE,
 };
 
-static struct flash_area download_journal =
+static struct flash_area factory_identity =
 {
-    FLASH_AREA_DOWNLOAD_JOURNAL,
+    FLASH_AREA_FACTORY_IDENTITY,
     FLASH_DEVICE_INTERNAL_FLASH,
     0U,
-    FLASH_AREA_DOWNLOAD_JOURNAL_ADDRESS,
-    FLASH_AREA_DOWNLOAD_JOURNAL_SIZE,
+    FLASH_AREA_FACTORY_IDENTITY_ADDRESS,
+    FLASH_AREA_FACTORY_IDENTITY_SIZE,
+};
+
+static struct flash_area communication_config =
+{
+    FLASH_AREA_COMMUNICATION_CONFIG,
+    FLASH_DEVICE_INTERNAL_FLASH,
+    0U,
+    FLASH_AREA_COMMUNICATION_CONFIG_ADDRESS,
+    FLASH_AREA_COMMUNICATION_CONFIG_SIZE,
 };
 
 static struct flash_area *boot_area_descs[] =
@@ -74,7 +83,8 @@ static struct flash_area *boot_area_descs[] =
     &primary_1,
     &secondary_1,
     &boot_user,
-    &download_journal,
+    &factory_identity,
+    &communication_config,
     NULL,
 };
 

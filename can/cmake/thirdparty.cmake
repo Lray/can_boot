@@ -9,10 +9,6 @@
 
 set(SHARED_THIRDPARTY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../third_party)
 
-# ---- isotp-c v1.8.0 ----
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/isotp.cmake)
-can_add_isotp(${CMAKE_CURRENT_BINARY_DIR}/isotp-c)
-
 # ---- QCBOR ----
 set(QCBOR_SRC
     ${SHARED_THIRDPARTY_DIR}/QCBOR/src/qcbor_decode.c

@@ -1,58 +1,65 @@
-# Gateway / MCU UDS 对齐契约
+# Gateway / MCU UDS alignment
 
-gateway 是 MCU 的 UDS client，不是第二个 UDS server。它不生成 `0x78`、`0x21` 或任何 MCU
-正响应；它负责按 MCU profile 发送请求、完整接收 ISO-TP PDU，并以相同的事务语义解释 MCU
-响应。
+The T527 Gateway is the central controller. Each STM32 MCU is an LSS-addressed
+node beneath it. LSS supplies the node identity and Node-ID; UDS then performs
+diagnostics and firmware update against that selected node.
 
-## 传输与寻址
+Both endpoints use the unmodified driftregion/iso14229 release 0.11.0
+(commit 8a7eb23d6ab9d52f66ce36b07ba456613709c78e). The Gateway binds
+UDSClient_t to Linux SocketCAN ISO-TP, and the MCU binds UDSServer_t directly
+to the upstream UDSTpISOTpC_t transport. Product callbacks implement DID data,
+SecurityAccess token verification, inactive-slot erase/write and reset.
 
-- Classic CAN、11-bit normal addressing：请求 `0x7E0`，响应 `0x7E8`，500 kbit/s。
-- Linux SocketCAN ISO-TP 接收 Flow Control 默认为 `BS=8`、`STmin=2 ms`。配置同时接受
-  ISO 15765-2 允许的 `BS=0` 和 `STmin=0x00..0x7F`、`0xF1..0xF9` 编码。
-- SocketCAN 将一个完整 ISO-TP PDU 交给 UDS client；若内核报告截断，UDS client 将其作为
-  buffer-too-small 失败，而不会把截断数据解释为合法 UDS 响应。
+## Transport and addressing
 
-## 会话与时序
+- Classic CAN, 11-bit normal addressing and 500 kbit/s.
+- For Node-ID N, the Gateway sends at 0x600 + N and receives at 0x580 + N.
+- The Gateway retains its 512-byte UDS buffers. The MCU uses the upstream
+  4095-byte ISO-TP and UDS buffers; service-level limits remain unchanged.
+  MCU Flow Control uses BS=8 and STmin=2 ms.
+- SocketCAN delivers a complete ISO-TP PDU to the upstream UDS client.
 
-默认时序仅用于首次 `0x10` 前：`P2ServerMax=50 ms`、`P2*ServerMax=5000 ms`。gateway 必须
-接受且验证完整的 SessionControl 正响应：
+## Standard timing and session behavior
 
-`50 <session> <P2-hi> <P2-lo> <P2*-hi> <P2*-lo>`
+- Initial and server timing is P2=50 ms, P2*=5000 ms; P2* is encoded in 10 ms
+  units in a 0x10 response.
+- The upstream client adopts valid P2/P2* values announced by the server.
+- MCU S3Server is the upstream default 5100 ms. Upstream refreshes S3 for
+  DiagnosticSessionControl and TesterPresent. Other services do not refresh it.
+- The Gateway sends TesterPresent at 2000 ms intervals during long transfers.
+- Upstream accepts successive valid 0x78 ResponsePending messages until a
+  terminal response or a P2* / operation deadline. There is no project
+  response-count limit.
 
-其中 P2* 在 wire 上以 10 ms 为单位编码；MCU 的 `5000 ms` 因而编码为 `0x01F4`。gateway 在
-每次有效 `0x10` 后更新后续事务的 P2/P2*，而在 `0x11 01` 成功后恢复本 profile 的默认值。
+## SecurityAccess
 
-每个服务都先按当前 P2 等待（多帧请求额外计入本端 ISO-TP 发包裕量）。gateway 不会因为服务
-类型、长 token 或 Flash routine 而直接把首次等待放宽到 P2*。
+- The upstream server enforces its 1000 ms boot delay and 1000 ms delay after
+  a failed key.
+- A seed response after the level is already unlocked is the upstream
+  two-byte zero seed. The Gateway treats any nonempty all-zero seed as already
+  unlocked.
+- A nonzero project seed is four bytes and is passed to the OP-TEE token
+  provider. Token verification remains a product callback.
 
-## S3 会话维持（对齐 ISO 14229-1 / iso14229 参考实现）
+## Download behavior
 
-- MCU 端 S3Server 定时器 = `UDS_SERVER_DEFAULT_S3_MS`（5100 ms，ISO 14229-2 Table 5
-  "5000 −0/+200 ms" 容差上限），仅由 `0x10` 进入非默认会话与 `0x3E`（子功能 0x00/0x80）
-  重置；普通业务请求不重置。
-- 到期检查在每轮 `UDS_PollS3` 无条件执行（响应传输中不暂停），超时后 MCU 回默认会话并清除
-  安全解锁状态。
-- gateway 承担 S3Client 保活义务：传输期每个 `0x36` 块后发送 `0x3E`；下载准备轮询期每
-  `UDS_KEEPALIVE_INTERVAL_MS`（1 s）发送一次 `0x3E`。保活失败不中断流程，后续业务请求会
-  以 NRC 暴露会话失效。
+The product sequence is:
 
-## ResponsePending
+1. 31 01 FF 00 starts inactive-slot erase.
+2. 31 03 FF 00 polls the result; unavailable results return NRC 0x24, and a
+   Flash failure returns 0x72.
+3. 34 00 44 00 00 00 00 <size[4]> begins the transfer.
+4. The server returns maxNumberOfBlockLength 258, allowing 256 payload bytes.
+5. 0x36 transfers strict consecutive BSC values and 0x37 completes.
 
-- 只有长度正好为 3、SID 与原请求相同的 `7F <SID> 78` 才是 ResponsePending。
-- 每个有效 `0x78` 仅把下一次等待切换到当前协商的 P2*；最终响应仍须是匹配的正响应或终态 NRC。
-- gateway 最多接受 8 个 `0x78`；第 9 个返回 `UDS_ERR_RESPONSE_PENDING_LIMIT`，避免无限等待。
-- `0x78` 是通用 UDS 事务能力，不承担下载擦除进度。下载准备由下述 `F001` 例程的结果轮询表达。
+Per upstream behavior, a BSC mismatch returns NRC 0x24 and resets the upstream
+transfer state. The Gateway does not retry a timed-out block. A new
+erase/download sequence is required before continuing, which avoids writing a
+block twice after an ambiguous timeout.
 
-## 服务边界
+Standard NRC values are returned directly by the Gateway adapter. Product
+code can inspect last_nrc for logging, but it does not translate a standard
+NRC into a project-specific negative error.
 
-客户端覆盖 MCU update profile 使用的 `0x10/0x11/0x22/0x27/0x31/0x34/0x36/0x37/0x3E`。普通业务
-调用使用类型化 API；诊断/回归工具复用同一
-P2/P2*、`0x78`、NRC 长度与事务上限逻辑。
-
-下载的固定顺序是：`0x31 01 F0 01 <size><payload_id>` 启动准备，轮询
-`0x31 03 F0 01` 直到结果为 `ready`，再发送扩展 `0x34`。`0x34` 仅绑定描述符、
-返回目标槽与恢复偏移；它不会擦除 Flash 或返回 `0x78`。
-
-相关 host tests 位于 `tests/test_uds_client.c` 和 `tests/test_isotp_channel.c`：它们覆盖 P2* wire
-解码、会话协商时序、首个与重复 `0x78`、8 个 pending 上限、畸形 NRC，以及 ISO-TP Flow
-Control 编码范围；`tests/test_resume_transfer.c` 还覆盖下载准备例程到 `0x34` 的顺序。
+Host coverage is in tests/test_uds_client.c, tests/test_transfer.c and
+can/Tests/uds_server_host_test.c.

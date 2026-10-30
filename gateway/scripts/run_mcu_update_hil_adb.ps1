@@ -58,8 +58,8 @@ $swuWslPath = (& wsl.exe -d $WslDistribution -- wslpath -a $swuFullPath 2>&1 | S
 if ($LASTEXITCODE -ne 0 -or $swuWslPath -notmatch '^/mnt/[a-z]/') { throw 'Cannot resolve the SWU artifact inside WSL.' }
 if (((Invoke-Adb get-state | Select-Object -Last 1).Trim()) -ne 'device') { throw "ADB device is not ready: $Serial" }
 
-Invoke-AdbShell 'systemctl is-active --quiet mcu-update-token-signer.service mcu-updater.service mcu-update-swupdate.service' | Out-Null
-Invoke-AdbShell 'test -S /run/mcu-update/remote-handler/mcu-v1' | Out-Null
+Invoke-AdbShell 'systemctl is-active --quiet LSS_gateway.service mcu-updater.service mcu-update-swupdate.service' | Out-Null
+Invoke-AdbShell 'test -S /run/mcu-update/remote-handler/image-install' | Out-Null
 $startEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
 $assignArguments = 'assign --artifact ' + (ConvertTo-ShellLiteral $swuWslPath) +
@@ -86,6 +86,6 @@ if (-not $completed) {
     throw "Timed out waiting for a confirmed production update.`n$service`n$journal`n$action"
 }
 
-Invoke-AdbShell 'systemctl is-active --quiet mcu-updater.service' | Out-Null
-Write-Output 'Production single-MCU update HIL passed.'
+Invoke-AdbShell 'systemctl is-active --quiet LSS_gateway.service mcu-updater.service' | Out-Null
+Write-Output 'Production single-target MCU update HIL passed.'
 Write-Output $action

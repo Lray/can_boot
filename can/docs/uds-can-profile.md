@@ -6,17 +6,29 @@
 
 ## 当前实现
 
-- ISO-TP 状态机直接采用 [`SimonCahill/isotp-c` v1.8.0](../ThirdParty/isotp-c/UPSTREAM.md)，
-  对应提交 `abb9e552df0e7ca0148c146124795341d57124fe`；第三方运行时源码不作修改，
-  STM32 适配仅实现 CAN 发送、毫秒分辨率的微秒单位时钟和调试三个上游端口函数；
-  接收帧直接交给上游 `isotp_on_can_message()`。
+- UDS server 直接采用未修改的 [`driftregion/iso14229` 0.11.0](../../third_party/iso14229/UPSTREAM.md)，
+  对应提交 `8a7eb23d6ab9d52f66ce36b07ba456613709c78e`。`uds_server.c` 接收上游
+  `UDSTp_t`，并在事件回调中实现本项目的 DID、Token 验证、
+  inactive-slot 下载和复位策略。
+- ISO-TP 直接采用该版本 iso14229 内置的 `UDSTpISOTpC_t` 和 isotp-c 实现，
+  通过 `UDSServerTpISOTpCInit()` 初始化，不再单独编译独立的 isotp-c 库。
+  第三方运行时源码不作修改；STM32 适配仅实现 CAN 发送、毫秒分辨率的微秒单位
+  时钟和调试三个上游端口函数，CAN 发送上下文通过 `user_send_can_arg` 传入。
+- CAN 接收回调只将完整帧入队，OTA 线程将帧交给 `tp.phys_link`，随后调用
+  `UDSServerPoll()`，由上游统一轮询 ISO-TP 并取走完整 PDU。接收数据只从
+  ISO-TP 重组缓冲复制一次到 UDS 请求缓冲，没有应用层整包中转缓冲或完成回调。
+  `FULL` 状态期间保留尚未消费的 PDU，丢弃后来的请求数据帧；FC 仍交给上游，
+  保证发送中的响应能够继续。这是本项目的单个待处理请求策略。
 - Classic CAN，8-byte CAN DLC，标准 11-bit normal addressing。
 - 物理请求 ID 为 `0x7E0`，响应 ID 为 `0x7E8`；当前不接收 functional addressing、
   29-bit addressing、extended/mixed addressing 或 CAN FD。
 - ISO-TP 支持 Single Frame、First/Consecutive Frame 和 Flow Control；接收端对
-  超出 512-byte 配置缓冲区的 First Frame 返回 `FC(OVFLW)`。
+  超出上游默认 4095-byte 接收缓冲区的 First Frame 返回 `FC(OVFLW)`。
 - First Frame 接受普通 12-bit 长度；能够识别 32-bit extended length 格式，但所有
-  合法 extended-length PDU 都超过 512-byte MCU 缓冲区，因此以 `FC(OVFLW)` 拒绝。
+  合法 extended-length PDU 都超过 4095-byte MCU 缓冲区，因此以 `FC(OVFLW)` 拒绝。
+- UDS 收发缓冲也采用上游默认 4095 字节；编译期检查 UDS 接收容量不小于
+  ISO-TP 最大 PDU，避免上游接收复制被截断。服务级长度约束保持独立，
+  `0x36` 单次数据仍最多 256 字节，`0x74` 公布的最大块长仍为 258 字节。
 - 接收端 Flow Control 为 `CTS, BS=8, STmin=2 ms`；Flow Control 的解析和状态
   迁移完全由上游实现维护。上游默认最多接受 1 个连续 `WAIT`，超限后以
   `WFT_OVRN` 结束发送。
@@ -30,23 +42,25 @@
   只抑制正响应，负响应仍正常返回。
 - `0x10` 正响应公布 `P2ServerMax=50 ms` 和 `P2*ServerMax=5000 ms`；后者按
   ISO 14229 的 10 ms wire unit 编码为 `0x01F4`。
-- `0x34 RequestDownload` 是产品扩展：标准 address/size 字段后追加完整 payload
-  SHA-256；正响应在最大块长后追加 MCU 选定的 `target_slot` 与唯一可恢复的
-  `resume_offset`。地址必须为零，目标槽始终由 MCU 的 inactive slot 推导。
-- `0x31 StartRoutine F001` 是下载准备的产品例程：请求携带完整镜像大小和
-  payload SHA-256，启动独立的擦除作业；`0x31 RequestRoutineResults F001` 返回
-  `pending` 或 `ready`。相同描述符的重复启动只返回当前作业，不重复擦除。擦除每轮
-  最多处理一个 8 KiB Flash page，由 OTA 组合根轮询。
-- `0x34 RequestDownload` 只验证已经 `ready` 的同一下载描述符，并立即返回 `0x74`；
-  它不擦除 Flash，也不发送 `0x78`。
-- `DID_CONFIRM_RESULT (0xF1A8)` 仅报告当前启动的自检与 MCUboot `image_ok`
+- `0x34 RequestDownload` 使用标准 wire 格式：`34 00 44 00 00 00 00 <size[4]>`
+  （11 字节），正响应严格为 `74 20 01 02`（4 字节，最大块长 258）。
+  地址固定为零，目标槽始终由 MCU 的 inactive slot 推导，不在 UDS 响应上传输。
+- `0x31 StartRoutine FF00`（ISO 14229 routineIdentifier EraseMemory）擦除
+  inactive slot：请求不携带参数，MCU 选择 inactive slot 并启动独立的擦除作业；
+  `0x31 RequestRoutineResults FF00` 在未完成时返回 NRC `0x24`，完成后返回
+  4 字节 BE 结果记录（`0x00000000` 成功）；Flash 失败返回 NRC `0x72`。作业已激活时
+  重复启动返回 NRC `0x24`。擦除每轮最多处理一个 8 KiB Flash page，由 OTA 组合根
+  轮询。
+- `0x34 RequestDownload` 校验 image size
+  适配目标槽，然后立即返回 `0x74`；它不擦除 Flash，也不发送 `0x78`。
+- `DID_CONFIRM_RESULT (0xF1F4)` 仅报告当前启动的自检与 MCUboot `image_ok`
   写入结果；它不是持久化激活状态。
 - `DID_APP_VERSION` 使用 8 字节完整 MCUboot 版本：`major, minor, revision
   (BE16), build (BE32)`。
 
 ## 明确的产品边界
 
-擦除属于 `F001` 准备例程，而不是数据传输服务。`0x36 TransferData` 单次写入仍受
+擦除属于 `FF00` EraseMemory 例程，而不是数据传输服务。`0x36 TransferData` 单次写入仍受
 `DOWNLOAD_MAX_TRANSFER_PAYLOAD`（256 bytes）约束。普通 OTA 镜像由制作工具
 预置 pending magic；最后一个 TransferData 只编程独立的 16-byte magic 单元。
 镜像完整性验真（SHA-256、签名、TLV、安全计数器）在复位后由 MCUboot 完成。
@@ -54,7 +68,7 @@
 结果轮询表达，而不是以更长的 P2* 或 `0x78` 隐藏在 `0x34` 中。
 
 同样，若产品需要 functional addressing、29-bit/CAN FD 或更大的 UDS PDU，必须
-先扩展 `can_frame_t`、CAN filter、ISO-TP addressing/length/padding 状态机及对应
+先扩展 `CO_CANrxMsg_t`、`CO_CANtx_t`、CAN filter、ISO-TP addressing/length/padding 状态机及对应
 测试，不能仅修改 ID 常量后宣称符合相应 profile。
 
 ## 回归覆盖
@@ -63,4 +77,23 @@ ISO-TP 主机测试直接调用上游 API，覆盖无填充 Single Frame、多�
 接收缓冲区 Overflow、发送填充、BS/STmin 发送节拍以及 `N_Bs/N_Cr` 超时原因。
 UDS/下载测试覆盖正响应抑制、P2* wire 编码、下载准备作业的 `pending`、`ready`
 以及 `0x34` 仅在 ready 后接受。固定寻址及 Classic CAN 限制由
-`can_network.h`、`can_frame.h` 和本文件共同定义。
+`can_network.h`、`301/CO_driver.h` 和本文件共同定义。
+
+## ISO wire 与产品策略
+
+`0x34/0x74` 保持 ISO 14229 结构。产品策略为 DFI=`00`、ALFI=`44`、
+memoryAddress=`0`、单块数据 256 字节、MCU 自动写入 inactive slot、
+`0x31 FF00` 擦除该槽，以及项目 token/signature SecurityAccess。
+`0x22` 当前每次只支持一个 DID（`maxNumberOfDIDsPerRDBIRequest=1`）；未知 DID
+返回 `7F 22 31`。项目识别 DID 为 `F1F0`~`F1F5`，分别表示 boot version、
+app version、updater version、active slot、confirm result 和出厂身份
+（`DID_FACTORY_IDENTITY`，`0xF1F5`）；
+`F180`~`F182` 不承载这些项目数据。
+
+S3Server 采用上游默认值 5100 ms，并按上游状态机只由 `0x10` 和 `0x3E`
+刷新。S3 超时返回默认会话、锁定 SecurityAccess 并终止当前下载事务；已写入 Flash
+的字节不回滚。SecurityAccess 使用上游的 1000 ms 启动延时和失败后延时；已解锁时
+上游返回两个零字节 seed。
+
+`0x36` 的 BSC 必须严格等于上游期望值。重复或跳号返回 NRC `0x24`，同时上游终止
+当前 transfer；必须重新执行擦除和 `0x34`，Gateway 不重发超时块。

@@ -5,7 +5,7 @@
 #include <string.h>
 
 #include "profile.h"
-#include "resume_transfer.h"
+#include "transfer.h"
 #include "security_access.h"
 #include "shared/image_confirm_result.h"
 #include "util.h"
@@ -28,6 +28,16 @@ static OtaState_t classify_post_reset(const OtaPackage_t *package,
     return OTA_STATE_POST_RESET_CHECKED;
 }
 
+static bool expected_inactive_slot(uint8_t active_slot, uint8_t *slot_out)
+{
+    if (active_slot != OTA_SLOT_A && active_slot != OTA_SLOT_B)
+    {
+        return false;
+    }
+    *slot_out = active_slot == OTA_SLOT_A ? OTA_SLOT_B : OTA_SLOT_A;
+    return true;
+}
+
 OtaState_t ota_executor_run(const OtaExecutorConfig_t *config,
                             const OtaPackage_t *package,
                             OtaExecutorResult_t *result_out)
@@ -45,7 +55,7 @@ OtaState_t ota_executor_run(const OtaExecutorConfig_t *config,
     }
     memset(result_out, 0, sizeof(*result_out));
     if (config == NULL || package == NULL ||
-        !uds_client_is_ready(config->client) || config->signer == NULL ||
+        !uds_client_is_ready(config->client) || config->token_tee == NULL ||
         config->reconnect == NULL)
     {
         return OTA_STATE_PACKAGE_VALIDATED;
@@ -61,28 +71,22 @@ OtaState_t ota_executor_run(const OtaExecutorConfig_t *config,
                              config->reconnect_ctx, start + precheck_window, 0,
                              start + precheck_window,
                              &result_out->before);
-    if (rc != 0)
+    if (rc != 0 || !factory_identity_equal(&result_out->before.identity, &package->identity))
     {
         return OTA_STATE_PACKAGE_VALIDATED;
     }
-    /* 0x10 03: DiagnosticSessionControl -> Extended Session. */
-    rc = uds_enter_session(config->client, SESSION_EXTENDED);
-    if (rc == 0)
+    if (!expected_inactive_slot(result_out->before.active_slot, &target_slot))
     {
-        /* 0x10 02: DiagnosticSessionControl -> Programming Session. */
-        rc = uds_enter_session(config->client, SESSION_PROGRAMMING);
+        return OTA_STATE_PACKAGE_VALIDATED;
     }
-    if (rc == 0)
-    {
-        /* 0x3E 00: TesterPresent with zero sub-function. */
-        rc = uds_tester_present(config->client);
-    }
+    /* 0x10 02: DiagnosticSessionControl -> Programming Session. */
+    rc = uds_enter_session(config->client, SESSION_PROGRAMMING);
     if (rc != 0)
     {
         return OTA_STATE_PACKAGE_VALIDATED;
     }
 
-    rc = security_access_unlock(config->client, config->signer);
+    rc = security_access_unlock(config->client, config->token_tee);
     if (rc != 0)
     {
         /* Diagnostic only: never emit the seed, token, or key material. */
@@ -91,9 +95,7 @@ OtaState_t ota_executor_run(const OtaExecutorConfig_t *config,
         return OTA_STATE_SESSION_OPEN;
     }
 
-    rc = resume_transfer_execute(config->client, package->image_sha256,
-                                 package->image_size, package->image,
-                                 &target_slot);
+    rc = transfer_execute(config->client, package->image_size, package->image);
     if (rc != 0)
     {
         return OTA_STATE_AUTHORIZED;
@@ -121,6 +123,10 @@ OtaState_t ota_executor_run(const OtaExecutorConfig_t *config,
     if (rc != 0)
     {
         return OTA_STATE_RECONNECTED;
+    }
+    if (!factory_identity_equal(&result_out->after.identity, &package->identity))
+    {
+        return OTA_STATE_POST_RESET_CHECKED;
     }
     return classify_post_reset(package, &result_out->after, target_slot);
 }

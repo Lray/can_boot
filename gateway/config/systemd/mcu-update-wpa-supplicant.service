@@ -7,10 +7,9 @@ ConditionPathExists=/etc/mcu-update/wpa_supplicant.conf
 
 [Service]
 Type=simple
-EnvironmentFile=/etc/mcu-update/wifi.conf
 RuntimeDirectory=wpa_supplicant
 RuntimeDirectoryMode=0750
-ExecStart=/usr/sbin/wpa_supplicant -D nl80211 -i ${MCU_WIFI_IFNAME} -c /etc/mcu-update/wpa_supplicant.conf -C /run/wpa_supplicant
+ExecStart=/usr/sbin/wpa_supplicant -D nl80211 -i wlan0 -c /etc/mcu-update/wpa_supplicant.conf -C /run/wpa_supplicant
 Restart=always
 RestartSec=3
 

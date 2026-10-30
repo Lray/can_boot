@@ -54,9 +54,7 @@ Owner:
 
 Responsibility:
 
-- `secure_zero`: compiler-safe memory clearing for secrets.
-- `is_lower_hex`, `is_uuid_v4`, `valid_ifname`: input validators shared by
-  package, updater, and bridge code.
+- compiler-safe memory clearing for secrets and monotonic timing primitives.
 
 Rules:
 
@@ -111,49 +109,28 @@ Rules:
 - UDS code must not open Linux sockets directly.
 - SocketCAN details stay below this layer.
 
-## UDS Transaction Engine
+## UDS Client
 
 Owner:
 
-- `src/uds/uds_transaction.h`
-- `src/uds/uds_transaction.c`
-
-Responsibility:
-
-- one request/response transaction over injected transport callbacks
-- P2/P2* deadlines, `0x78 ResponsePending`, NRC framing, response capture, and
-  the transaction-wide deadline
-
-Rules:
-
-- This module owns generic transaction mechanics only.
-- Session semantics, DID semantics, and OTA policy stay in their callers.
-- It must not depend on concrete SocketCAN or Linux ISO-TP implementations.
-
-## UDS Client
-
-Future owner:
-
-- `src/diag_client.h`
-- `src/diag_client.c`
-- `third_party/iso14229/`
-Current minimal UDS owner:
-
 - `src/uds/uds_client.h`
 - `src/uds/uds_client.c`
+- `../third_party/iso14229/iso14229.c`
+- `../third_party/iso14229/iso14229.h`
 
 Responsibility:
 
-- trimmed `driftregion/iso14229` client integration
-- `0x10`, `0x3E`, `0x22`, then OTA services after minimal UDS
-- NRC and `0x78 ResponsePending` handling
+- bind the unmodified upstream `UDSClient_t` to `TransportOps`
+- expose the typed services required by diagnosis and OTA
+- enforce the updater-wide deadline and product response payload checks
 
 Rules:
 
 - UDS client depends on transport callbacks, not on concrete SocketCAN or
   Linux ISO-TP socket details.
-- OTA policy stays outside the vendored library.
-- Vendored files are not the place for gateway retry, package, resume, or
+- P2/P2*, standard NRC, `0x78` and request state belong to upstream.
+- OTA policy stays outside the vendored library and adapter.
+- Vendored files are not the place for gateway retry, package, or
   progress behavior.
 
 ## Security Access
@@ -166,16 +143,15 @@ Current owner:
 Responsibility:
 
 - request the MCU seed through the UDS client
-- pass only the seed challenge to the signer client
+- pass only the seed challenge to the dedicated token TA
 - send the resulting token and report the unlock result
 
 Rules:
 
 - SecurityAccess orchestration must use `UdsClient`; it must not open CAN or
   ISO-TP sockets directly.
-- Token signing and private-key handling stay behind the signer client
-  boundary in `src/security/token_signer_client.*` (client) and
-  `apps/token-signer-daemon/` (TEE-backed signer).
+- Token construction and private-key handling stay in the dedicated TA;
+  `src/security/security_token_tee.*` owns only the direct libteec session.
 - This layer owns gateway-side client sequencing, not MCU-side SecurityAccess
   state or cryptographic policy.
 
@@ -186,13 +162,11 @@ Current package-boundary owner:
 - `src/package/package_input.h`
 - `src/package/package_metadata.h`
 - `src/package/package_metadata.c`
-- `src/package/sha256.h`
-- `src/package/sha256.c`
 
 Responsibility:
 
 - package-input member and directory names shared by the updater and bridge
-- descriptor-free package loading: read the signed image, derive size, digest,
+- descriptor-free package loading: read the signed image, derive size
   and declared MCUboot header version from `image.bin`; validate size
   boundaries needed before transfer
 
@@ -216,14 +190,14 @@ The only OTA owner is:
 
 Its private transfer and observation collaborators are:
 
-- `src/ota/resume_transfer.h`
-- `src/ota/resume_transfer.c`
+- `src/ota/transfer.h`
+- `src/ota/transfer.c`
 - `src/ota/ota_runtime.h`
 - `src/ota/ota_snapshot.h`
 - `src/ota/ota_snapshot.c`
 
 `ota_executor` owns the complete OTA lifecycle and receives its UDS client,
-reconnect callback, and signer directly through `OtaExecutorConfig_t`;
+reconnect callback, and SecurityAccess token issuer through `OtaExecutorConfig_t`;
 `ota_snapshot` receives the client, reconnect callback, and deadlines as plain
 parameters. The snapshot module retains stable MCU observation without
 depending on `ota_executor.h`.
@@ -236,12 +210,12 @@ Responsibility:
 - `ota_snapshot` owns stable MCU observation: the injectable monotonic
   clock and sleep, single DID snapshot reads, and the two-reads-equal
   polling policy used before download and after reset.
-- `resume_transfer` starts and polls the MCU download-preparation routine, validates the
-  subsequent `RequestDownload` response, calculates the remaining transfer from its durable offset, and drives the
-  already-authorized `0x36/0x37` transfer, enforcing byte count, block
-  sequence, and the terminal state of one transfer session.
+- `transfer` starts and polls the MCU download-preparation routine, validates the
+  subsequent `RequestDownload` response, and drives the already-authorized
+  `0x36/0x37` transfer, enforcing byte count, block sequence, and the terminal
+  state of one transfer session.
 
-`resume_transfer` owns resume arithmetic and does not duplicate the executor
+`transfer` owns the full image transfer and does not duplicate the executor
 lifecycle.
 
 Rules:
@@ -252,7 +226,7 @@ Rules:
   post-reset state classification must not be exposed as a second flow.
 - These modules depend on typed UDS operations and must not include SocketCAN
   or Linux ISO-TP headers.
-- The retained host test is limited to pure resume-plan arithmetic and typed
+- The retained host test is limited to sequential transfer behavior and typed
   UDS/transfer codec boundaries. Lifecycle acceptance is board/HIL evidence.
 
 ## Diagnostic ULog Receiver
@@ -289,20 +263,17 @@ Rules:
 Linux process entry points and external-system adapters are kept outside the
 protocol and domain library:
 
-- `apps/mcu_updater/`: direct diagnostic updater and package probe entry points.
+- `apps/LSS_gateway/`: resident LSS Master, official Gateway ASCII and command socket.
+- `apps/mcu_updater/`: production image receiver and update-job service.
 - `apps/log_receiver/`: manually launched MCU ULog diagnostic receiver.
-- `apps/token-signer-daemon/`: TEE-backed COSE token signer daemon; owns
-  OP-TEE session integration and socket-side peer policy.
 - `adapters/swupdate/`: production entry path
   `hawkBit -> SWUpdate Remote Handler -> ZeroMQ -> mcu-updater`.
-  `remote_handler` owns the ZeroMQ REP endpoint and frame protocol;
-  `package_store` owns package receive, the announced-size bound, local
-  SHA-256 derivation, and atomic publication; `mcu_updater_main.c` composes those
-  adapters with the single `mcu_update_run_job()` application service.
-- `src/security/token_signer_*`: token signer client library; `token_signer_codec`
-  owns CBOR and protocol framing while the client owns Unix
-  socket policy and I/O. `token_signer_protocol.h` is the single source for the
-  signer profile, response statuses, and message-size limits.
+  The project-local `remote_handler` adapter owns the ZeroMQ REP endpoint and
+  two-frame transport; `mcu_updater.c` owns the bounded INIT/DATA transaction
+  and composes it with the single `mcu_update_run_image()` application service.
+- `src/security/security_token_tee.*`: direct libteec client for the dedicated
+  SecurityAccess token TA; it verifies the provisioned public key and requests
+  only the protocol-bound token command.
 
 Applications and adapters may compose the lower layers, but the lower layers
 must not depend on process-specific IPC, external services, or application
@@ -320,30 +291,56 @@ Current tools:
 
 The MCU updater has no package descriptor; the signed MCUboot image is the only
 package member, and the SecurityAccess token contract (seed-challenge
-claims) lives in `shared/security_token_profile.h`. The direct diagnostic CLI is isolated
-in `direct_args.c/.h`.
+claims) lives in `shared/security_token_profile.h`.
 
-## Single-MCU Production Updater
+## Production MCU Updater
+
+LSS gateway owner:
+
+- `apps/LSS_gateway/LSS_gateway.c` holds the only LSS Master and official Gateway
+  ASCII instances and connects the CAN receive/timing loop to
+  `/run/LSS_gateway/command.sock`, following official `CO_main_basic.c` and
+  `CO_epoll_interface.c` organization.
+- The daemon initializes the official modules and accepts one client. `CO_fifo`
+  and `CO_gateway_ascii` own ASCII parsing and all command state machines;
+  `CO_LSSmaster` owns the actual CAN LSS exchanges. No parser or Fastscan state
+  machine is copied into the process entry point.
+- The gateway does not initiate scanning at startup. Client disconnect deselects
+  the LSS Master, restores its default timeout and clears the Gateway session.
+- The daemon does not receive images, invoke OTA, or persist identity mappings.
+- The only compiled sources are `LSS_gateway.c`, `CO_driver.c`, `CO_fifo.c`,
+  `CO_LSSmaster.c` and `CO_gateway_ascii.c`. Upstream `cocomm` is the reference
+  for client reception; its source is not vendored, compiled, deployed or invoked.
 
 Owner:
 
-- `apps/mcu_updater/mcu_updater_main.c`
-- `apps/mcu_updater/mcu_updater_args.h`
-- `apps/mcu_updater/mcu_updater_args.c`
+- `apps/mcu_updater/mcu_updater.c`
 
 Application-service owner:
 
-- `src/ota/mcu_update.h`
-- `src/ota/mcu_update.c`
+- `apps/mcu_updater/update_job.h`
+- `apps/mcu_updater/update_job.c`
 
 Responsibility:
 
-- `mcu_updater_main.c` receives one SWUpdate-verified image through the official
-  Remote Handler contract, creates an internal transaction, and atomically
-  publishes it.
-- `mcu_update_run_job()` validates the published input, configures the fixed
-  ISO-TP channel and TEE signer client, and invokes the only OTA lifecycle in
-  `ota_executor`.
+- `mcu_updater.c` receives one SWUpdate-verified image through the
+  SWUpdate 2019.11 Remote Handler wire contract and buffers only the current
+  transaction in an anonymous file.
+- Product-local paths, `awlink0`, and the Remote Handler endpoint are constants;
+  the production process has no generic runtime option parser.
+- `mcu_updater.c` extracts the received image identity and sends the official
+  `lss_allnodes 100 2 1`, selection, inquiry, and deselection commands over one exclusive gateway socket
+  connection. It requires Node-ID `1..127` before calling the OTA function and
+  initializes no CANopen or LSS instance.
+- Client reception follows the official blocking-read example without an independent
+  addressing deadline. `100` is the Fastscan step timeout in milliseconds.
+- Starting allocation at Node-ID `2` applies to the current single MCU. Multi-MCU
+  production requires a recoverable allocation strategy before this flow is extended.
+- `mcu_update_run_image()` validates the received image FD and accepts the
+  active Node-ID as input, configures that node's ISO-TP channel and
+  direct TA client, and invokes the only OTA lifecycle in `ota_executor`.
+- OTA verifies the package's factory identity through UDS before and after
+  reset; package and OTA code do not depend on CANopen LSS types or APIs.
 - The production process does not fork or execute a second OTA updater.
 - The updater must not implement DDI, HTTP, SWU parsing/signature checking, or
   MCUboot boot policy; those belong to SWUpdate and MCUboot.
@@ -351,13 +348,10 @@ Responsibility:
 Rules:
 
 - `remote_handler` owns the endpoint lock, socket ownership/mode checks, and
-  the two-frame INIT/DATA/ACK protocol. It contains no job, package, or updater
-  policy.
-- `package_store` owns receive state, the announced slot-size bound, local
-  SHA-256 derivation, staged writes, and atomic rename. It contains no ZMQ or MCU protocol code;
-  SWUpdate still verifies the signed SWU and MCUboot remains the final MCU
-  authority.
-- `mcu-updater-direct` may call the same application service for HIL or
-  production-line diagnostics, but production deployment scripts do not
-  install it.
+  two-frame ZeroMQ transport. It contains no package or updater policy.
+- `mcu_updater.c` owns INIT/DATA sequencing, the announced-size bound, and the
+  transaction-local `memfd`. SWUpdate still verifies the signed SWU and MCUboot
+  remains the final MCU authority.
 - Lower layers must not depend on SWUpdate adapter headers.
+- `mcu-updater` returns ACK only after the selected MCU is running the confirmed
+  image; all receive, protocol and MCU execution failures return NACK.

@@ -1,54 +1,38 @@
-# Minimal UDS
+# Gateway UDS client
 
-Scope:
+The Gateway is the central controller for the CANopen nodes. It discovers and
+addresses an MCU node through LSS, then acts as that node's UDS client over the
+Node-ID-derived ISO-TP channel.
 
-- `0x10 DiagnosticSessionControl`
-- `0x3E TesterPresent`
-- `0x22 ReadDataByIdentifier`
+The UDS protocol engine is the unmodified driftregion/iso14229 release 0.11.0,
+commit 8a7eb23d6ab9d52f66ce36b07ba456613709c78e. Source provenance is
+recorded in [third_party/iso14229/UPSTREAM.md](../../third_party/iso14229/UPSTREAM.md).
 
-Out of scope:
+src/uds/uds_client.c is the platform and product adapter. It connects the
+upstream UDSClient_t state machine to the existing TransportOps boundary and
+exposes the services used by the node-update flow:
 
-- OTA routine/download/transfer/reset services
-- package parsing
-- transfer scheduler
-- flash, update-state, or boot handoff
+- 0x10 DiagnosticSessionControl
+- 0x11 ECUReset
+- 0x22 ReadDataByIdentifier
+- 0x27 SecurityAccess
+- 0x31 RoutineControl
+- 0x34/0x36/0x37 download transfer
+- 0x3E TesterPresent
 
-Module boundary:
+P2/P2* negotiation, response validation, standard NRC values and
+0x78 ResponsePending are handled by upstream. The adapter adds the
+operation-wide updater deadline, validates project DID/routine payloads and
+keeps the update profile outside the vendored files.
 
-- `src/uds/uds_client.*` implements minimal UDS request/response handling.
-- `src/transport/transport.h` defines the narrow send/receive callback boundary.
-- `src/transport/isotp_channel.*` is the Linux ISO-TP adapter and owns socket details.
-- `tools/smoke/uds_smoke.c` wires the live ISO-TP channel to the UDS client for board validation.
-- Host tests use a fake transport and do not need CAN hardware.
+Host validation is in tests/test_uds_client.c. It verifies negotiated timing,
+exact NRC propagation, multiple 0x78 responses, DID validation,
+SecurityAccess, download/transfer/exit and transport failure handling.
 
-Host validation:
+Board validation remains:
 
-- `tests/test_uds_client.c` verifies:
-  - programming session request/positive response
-  - tester present request/positive response
-  - DID read payload extraction
-  - negative response reporting
-  - `0x10` 完整解析并保存 MCU 公布的 P2/P2*（P2* wire unit 为 10 ms）
-  - 仅收到同 SID、长度正确的 `0x7F <SID> 0x78` 后，才从协商 P2 切换到协商 P2*；最多接受 MCU profile 规定的 8 个 pending
+    cd /opt/can-ota-gateway
+    ./scripts/verify_uds.sh awlink0 .
 
-Board validation command:
-
-```bash
-cd /opt/can-ota-gateway
-./scripts/verify_uds.sh awlink0 .
-```
-
-Required board evidence:
-
-- `DiagnosticSessionControl 0x03 PASS`
-- `DiagnosticSessionControl 0x02 PASS`
-- `TesterPresent PASS`
-- `ReadDID 0xF180 PASS`
-- `ReadDID 0xF181 PASS`
-- `ReadDID 0xF182 PASS`
-- `ReadDID 0xF1A0 PASS`
-- `ReadDID 0xF1A6 PASS`
-- `ReadDID 0xF1A8 PASS`
-- one `NegativeResponse PASS` line
-- final `Minimal UDS PASS`
-- link remains `ERROR-ACTIVE` with stable error counters
+The test must address the selected MCU node, pass the supported DID reads and
+leave the CAN link ERROR-ACTIVE with stable error counters.

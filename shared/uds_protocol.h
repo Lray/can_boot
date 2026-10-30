@@ -2,13 +2,12 @@
 #define UDS_PROTOCOL_H
 
 #include "security_access_level.h"
-#include "payload_id_format.h"
 
 /*
  * Shared UDS wire contract between the MCU firmware (can/) and the Linux
  * gateway (gateway/).  This header is the single source of truth for the
- * diagnostic protocol values; both trees include it and must not redefine
- * these macros locally.
+ * product-profile values used by both trees. Standard UDS state-machine
+ * behavior and canonical NRC definitions come from the pinned iso14229 core.
  *
  * Naming follows the MCU tree (UPPER_SNAKE with U suffix).
  */
@@ -18,9 +17,6 @@
 #define P2_STAR_SERVER_DEFAULT_MS 5000U
 /* ISO 14229 encodes P2*ServerMax in 10 ms units on the wire. */
 #define P2_STAR_SERVER_DEFAULT_WIRE (P2_STAR_SERVER_DEFAULT_MS / 10U)
-#define UDS_RESPONSE_PENDING_REPEAT_INTERVAL_MS 1500U
-#define UDS_RESPONSE_PENDING_MAX_COUNT 8U
-#define UDS_SERVER_DEFAULT_S3_MS 5100U
 
 /* --- Service identifiers --- */
 #define SID_DIAGNOSTIC_SESSION_CONTROL 0x10U
@@ -52,7 +48,6 @@
 /* --- Diagnostic sessions --- */
 #define SESSION_DEFAULT 0x01U
 #define SESSION_PROGRAMMING 0x02U
-#define SESSION_EXTENDED 0x03U
 #define SUB_HARD_RESET 0x01U
 
 /* --- SecurityAccess subfunction levels (from security_access_level.h) --- */
@@ -65,51 +60,28 @@
 #define DOWNLOAD_ADDR_LEN_FORMAT_ID 0x44U
 #define DOWNLOAD_MAX_BLOCK_LEN_FORMAT_ID 0x20U
 #define DOWNLOAD_MEMORY_ADDRESS 0U
-#define UDS_REQUEST_DOWNLOAD_REQUEST_LEN (11U + PAYLOAD_ID_SIZE)
-#define UDS_REQUEST_DOWNLOAD_PAYLOAD_ID_OFFSET 11U
+#define UDS_REQUEST_DOWNLOAD_REQUEST_LEN 11U
 
-/* --- Download preparation routine --- */
+/* --- Erase memory routine (ISO 14229 routineIdentifier 0xFF00) --- */
 #define ROUTINE_CONTROL_START 0x01U
 #define ROUTINE_CONTROL_REQUEST_RESULTS 0x03U
-#define ROUTINE_ID_PREPARE_DOWNLOAD 0xF001U
-#define ROUTINE_PREPARE_DOWNLOAD_STATUS_READY 0x00U
-#define ROUTINE_PREPARE_DOWNLOAD_STATUS_PENDING 0x01U
+#define ROUTINE_ID_ERASE_MEMORY 0xFF00U
+/* 4-byte BE status record of the positive results response (ARDEP-aligned). */
+#define ROUTINE_ERASE_RESULT_OK 0x00000000U
 #define UDS_ROUTINE_CONTROL_REQUEST_LEN 4U
-#define UDS_PREPARE_DOWNLOAD_ROUTINE_REQUEST_LEN \
-    (UDS_ROUTINE_CONTROL_REQUEST_LEN + 4U + PAYLOAD_ID_SIZE)
-#define UDS_PREPARE_DOWNLOAD_ROUTINE_SIZE_OFFSET 4U
-#define UDS_PREPARE_DOWNLOAD_ROUTINE_PAYLOAD_ID_OFFSET 8U
-#define UDS_PREPARE_DOWNLOAD_ROUTINE_RESULT_LEN 5U
+/* Positive results response: 71 03 FF 00 + 4-byte BE status record. */
+#define UDS_ERASE_MEMORY_RESULT_LEN 8U
 
 /* Complete positive response offsets include the 0x74 SID. */
-#define UDS_REQUEST_DOWNLOAD_RESPONSE_LEN 9U
+#define UDS_REQUEST_DOWNLOAD_RESPONSE_LEN 4U
 #define UDS_REQUEST_DOWNLOAD_RESPONSE_MAX_BLOCK_OFFSET 2U
-#define UDS_REQUEST_DOWNLOAD_RESPONSE_TARGET_SLOT_OFFSET 4U
-#define UDS_REQUEST_DOWNLOAD_RESPONSE_RESUME_OFFSET 5U
-
-/* --- Negative response codes --- */
-#define NRC_GENERAL_REJECT 0x10U
-#define NRC_SERVICE_NOT_SUPPORTED 0x11U
-#define NRC_SUBFUNCTION_NOT_SUPPORTED 0x12U
-#define NRC_INCORRECT_MESSAGE_LENGTH 0x13U
-#define NRC_BUSY_REPEAT_REQUEST 0x21U
-#define NRC_CONDITIONS_NOT_CORRECT 0x22U
-#define NRC_REQUEST_SEQUENCE_ERROR 0x24U
-#define NRC_REQUEST_OUT_OF_RANGE 0x31U
-#define NRC_SECURITY_ACCESS_DENIED 0x33U
-#define NRC_INVALID_KEY 0x35U
-#define NRC_EXCEED_NUMBER_OF_ATTEMPTS 0x36U
-#define NRC_REQUIRED_TIME_DELAY_NOT_EXPIRED 0x37U
-#define NRC_UPLOAD_DOWNLOAD_NOT_ACCEPTED 0x70U
-#define NRC_GENERAL_PROGRAMMING_FAILURE 0x72U
-#define NRC_WRONG_BLOCK_SEQUENCE_COUNTER 0x73U
-#define NRC_RESPONSE_PENDING 0x78U
 
 /* --- Data identifiers --- */
-#define DID_BOOT_VERSION 0xF180U
-#define DID_APP_VERSION 0xF181U
-#define DID_UPDATER_VERSION 0xF182U
-#define DID_ACTIVE_SLOT 0xF1A0U
-#define DID_CONFIRM_RESULT 0xF1A8U
+#define DID_BOOT_VERSION 0xF1F0U
+#define DID_APP_VERSION 0xF1F1U
+#define DID_UPDATER_VERSION 0xF1F2U
+#define DID_ACTIVE_SLOT 0xF1F3U
+#define DID_CONFIRM_RESULT 0xF1F4U
+#define DID_FACTORY_IDENTITY 0xF1F5U
 
 #endif /* UDS_PROTOCOL_H */

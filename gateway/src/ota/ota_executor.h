@@ -5,7 +5,7 @@
 
 #include "ota_snapshot.h"
 #include "package_metadata.h"
-#include "token_signer_client.h"
+#include "security_token_tee.h"
 #include "uds_client.h"
 
 typedef enum
@@ -25,7 +25,7 @@ typedef struct
     UdsClient *client;
     UdsReconnectFn_t reconnect;
     void *reconnect_ctx;
-    const TokenSignerClient_t *signer;
+    SecurityTokenTee_t *token_tee;
     uint32_t precheck_deadline_ms;
     uint32_t post_reset_deadline_ms;
 } OtaExecutorConfig_t;

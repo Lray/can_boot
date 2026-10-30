@@ -4,6 +4,9 @@ Status: `ISO-TP 验收已通过`
 
 Date: 2026-06-23
 
+This is pre-LSS historical evidence for the original single-node fixture. Its
+fixed CAN IDs are not the current product addressing contract.
+
 Observed platform:
 
 - Kernel has `CONFIG_CAN_ISOTP=y`.
