@@ -1,94 +1,24 @@
 #include "uds_server.h"
 
 #include "download.h"
-#include "iso14229.h"
 #include "security_access.h"
 #include "shared/uds_protocol.h"
 #include "uds_read_did.h"
 
 #include <stddef.h>
 #include <stdint.h>
-#include <string.h>
 
 #define LOG_TAG "uds"
 #define LOG_LVL LOG_LVL_DBG
 #include "gateway_log.h"
 
-typedef struct
-{
-    UDSTp_t base;
-} mcu_uds_transport_t;
-
 static UDSServer_t s_server;
-static mcu_uds_transport_t s_upstream_transport;
-static const uds_transport_t *s_platform_transport;
-static uint8_t s_request[UDS_TP_MTU];
-static size_t s_request_length;
-static bool s_request_pending;
 static bool s_reset_accepted;
 static uint32_t s_now_ms;
 
 uint32_t UDSMillis(void)
 {
     return s_now_ms;
-}
-
-static UDSErr_t mcu_transport_send(UDSTp_t *transport,
-                                   const uint8_t *data,
-                                   size_t length,
-                                   const UDSSDU_t *info)
-{
-    (void)info;
-    if (length > UINT16_MAX || s_platform_transport == NULL ||
-        s_platform_transport->response_pending() ||
-        !s_platform_transport->send(data, (uint16_t)length))
-    {
-        return UDS_ERR_TPORT;
-    }
-    transport->status.is_sending =
-        s_platform_transport->response_pending() ? 1U : 0U;
-    return UDS_OK;
-}
-
-static UDSErr_t mcu_transport_recv(UDSTp_t *transport,
-                                   uint8_t *data,
-                                   size_t capacity,
-                                   size_t *length,
-                                   UDSSDU_t *info)
-{
-    (void)transport;
-    *length = 0U;
-    if (!s_request_pending)
-    {
-        return UDS_OK;
-    }
-    if (s_request_length > capacity)
-    {
-        s_request_pending = false;
-        s_request_length = 0U;
-        return UDS_ERR_BUFSIZ;
-    }
-    memcpy(data, s_request, s_request_length);
-    *length = s_request_length;
-    s_request_pending = false;
-    s_request_length = 0U;
-    if (info != NULL)
-    {
-        memset(info, 0, sizeof(*info));
-        info->A_Mtype = UDS_A_MTYPE_DIAG;
-        info->A_TA_Type = UDS_A_TA_TYPE_PHYSICAL;
-    }
-    return UDS_OK;
-}
-
-static UDSErr_t mcu_transport_poll(UDSTp_t *transport)
-{
-    transport->status.is_sending =
-        (s_platform_transport != NULL &&
-         s_platform_transport->response_pending())
-            ? 1U
-            : 0U;
-    return UDS_OK;
 }
 
 static UDSErr_t require_programming_and_unlock(
@@ -400,38 +330,15 @@ static UDSErr_t server_event(UDSServer_t *server, UDSEvent_t event,
     }
 }
 
-void UDS_Init(const uds_transport_t *transport)
+void UDS_Init(UDSTp_t *transport)
 {
-    memset(&s_upstream_transport, 0, sizeof(s_upstream_transport));
-    s_upstream_transport.base.send = mcu_transport_send;
-    s_upstream_transport.base.recv = mcu_transport_recv;
-    s_upstream_transport.base.poll = mcu_transport_poll;
-    s_platform_transport =
-        transport != NULL && transport->send != NULL &&
-                transport->response_pending != NULL
-            ? transport
-            : NULL;
-    s_request_pending = false;
-    s_request_length = 0U;
     s_reset_accepted = false;
     s_now_ms = 0U;
     SecurityAccess_Init();
     Download_Init();
     (void)UDSServerInit(&s_server);
-    s_server.tp = &s_upstream_transport.base;
+    s_server.tp = transport;
     s_server.fn = server_event;
-}
-
-void UDS_Dispatch(const uint8_t *request, uint16_t length)
-{
-    if (request == NULL || length == 0U || length > sizeof(s_request) ||
-        s_request_pending)
-    {
-        return;
-    }
-    memcpy(s_request, request, length);
-    s_request_length = length;
-    s_request_pending = true;
 }
 
 void UDS_Poll(uint32_t now_ms)

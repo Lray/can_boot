@@ -6,15 +6,17 @@ diagnostics and firmware update against that selected node.
 
 Both endpoints use the unmodified driftregion/iso14229 release 0.11.0
 (commit 8a7eb23d6ab9d52f66ce36b07ba456613709c78e). The Gateway binds
-UDSClient_t to Linux SocketCAN ISO-TP, and the MCU binds UDSServer_t to its
-existing isotp-c channel. Product callbacks implement DID data,
+UDSClient_t to Linux SocketCAN ISO-TP, and the MCU binds UDSServer_t directly
+to the upstream UDSTpISOTpC_t transport. Product callbacks implement DID data,
 SecurityAccess token verification, inactive-slot erase/write and reset.
 
 ## Transport and addressing
 
 - Classic CAN, 11-bit normal addressing and 500 kbit/s.
 - For Node-ID N, the Gateway sends at 0x600 + N and receives at 0x580 + N.
-- ISO-TP uses a 512-byte UDS PDU limit, BS=8 and STmin=2 ms.
+- The Gateway retains its 512-byte UDS buffers. The MCU uses the upstream
+  4095-byte ISO-TP and UDS buffers; service-level limits remain unchanged.
+  MCU Flow Control uses BS=8 and STmin=2 ms.
 - SocketCAN delivers a complete ISO-TP PDU to the upstream UDS client.
 
 ## Standard timing and session behavior

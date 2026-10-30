@@ -31,7 +31,6 @@
 #include "download.h"
 #include "factory_identity.h"
 #include "image_confirm.h"
-#include "isotp.h"
 #include "isotp_stm32.h"
 #include "305/CO_LSSslave.h"
 #include "security_access_entropy.h"
@@ -72,7 +71,6 @@
 #define WATCHDOG_THREAD_PRIORITY 17U
 #define WATCHDOG_FEED_INTERVAL_MS 500U
 #define THREAD_TIMESLICE      20U
-#define UDS_ISOTP_BUFFER_SIZE 512U
 #define CAN_RX_BUFFER_COUNT   2U
 #define CAN_RX_QUEUE_CAPACITY 32U
 #define CAN_TX_BUFFER_COUNT   4U
@@ -108,10 +106,11 @@ static struct rt_thread s_heartbeat_thread;
 static struct rt_thread s_watchdog_thread;
 static bool s_reset_requested;
 static uint32_t s_reset_due_tick;
-static IsoTpLink s_uds_isotp;
-static uint8_t s_isotp_send_buffer[UDS_ISOTP_BUFFER_SIZE];
-static uint8_t s_isotp_receive_buffer[UDS_ISOTP_BUFFER_SIZE];
+static UDSTpISOTpC_t s_uds_transport;
+_Static_assert(UDS_SERVER_RECV_BUF_SIZE >= UDS_ISOTP_MTU,
+               "UDS receive buffer must hold a complete ISO-TP PDU");
 static CO_CANmodule_t s_can_module;
+static isotp_stm32_t s_uds_can_port = {.module = &s_can_module};
 static CANopenNodeSTM32 s_can_stm32;
 static CO_CANrx_t s_can_rx_buffers[CAN_RX_BUFFER_COUNT];
 static CO_CANtx_t s_can_tx_buffers[CAN_TX_BUFFER_COUNT];
@@ -138,16 +137,6 @@ void SystemClock_Config(void);
 static uint32_t ReadResetReason(void)
 {
     return READ_BIT(RCC->CSR, RESET_REASON_MASK);
-}
-
-static void DispatchUdsMessage(void *link,
-                               const uint8_t *payload,
-                               uint32_t length,
-                               void *context)
-{
-    (void)link;
-    (void)context;
-    UDS_Dispatch(payload, (uint16_t)length);
 }
 
 static void ReceiveUdsCanFrame(void *object, void *message)
@@ -193,24 +182,16 @@ static void PollUdsCanFrames(void)
         s_can_rx_tail =
             (uint8_t)((s_can_rx_tail + 1U) % CAN_RX_QUEUE_CAPACITY);
         __set_PRIMASK(primask);
-        isotp_on_can_message(&s_uds_isotp, message.data, message.dlc);
+        /* Keep the pending PDU intact while still accepting response FCs. */
+        if ((s_uds_transport.phys_link.receive_status !=
+             ISOTP_RECEIVE_STATUS_FULL) ||
+            ((message.data[0] >> 4) == ISOTP_PCI_TYPE_FLOW_CONTROL_FRAME))
+        {
+            isotp_on_can_message(&s_uds_transport.phys_link,
+                                 message.data, message.dlc);
+        }
     }
 }
-
-static bool SendUdsResponse(const uint8_t *payload, uint16_t length)
-{
-    return isotp_send(&s_uds_isotp, payload, length) == ISOTP_RET_OK;
-}
-
-static bool UdsResponsePending(void)
-{
-    return s_uds_isotp.send_status == ISOTP_SEND_STATUS_INPROGRESS;
-}
-
-static const uds_transport_t s_uds_transport = {
-    .send = SendUdsResponse,
-    .response_pending = UdsResponsePending,
-};
 
 static bool ValidLssNodeId(uint8_t node_id)
 {
@@ -276,7 +257,8 @@ static bool ResetCommunication(void)
     s_can_module.CANnormal = false;
     CO_CANmodule_disable(&s_can_module);
     s_heartbeat_tx_buffer = NULL;
-    isotp_stm32_init(NULL, NULL);
+    s_uds_can_port.tx_buffer = NULL;
+    memset(&s_uds_transport, 0, sizeof(s_uds_transport));
     s_can_rx_head = 0U;
     s_can_rx_tail = 0U;
     success = CO_CANmodule_init(&s_can_module,
@@ -304,7 +286,7 @@ static bool ResetCommunication(void)
         CO_LSSslave_initCfgStoreCall(&s_lss_slave,
                                      NULL,
                                      StoreLssConfiguration);
-        UDS_Init(&s_uds_transport);
+        UDS_Init(&s_uds_transport.hdl);
         if (s_lss_slave.activeNodeID != CO_LSS_NODE_ID_ASSIGNMENT)
         {
             uint8_t node_id = s_lss_slave.activeNodeID;
@@ -343,14 +325,11 @@ static bool ResetCommunication(void)
             }
             if (success)
             {
-                isotp_init_link(&s_uds_isotp,
-                                CAN_ID_UDS_RESPONSE(node_id),
-                                s_isotp_send_buffer,
-                                sizeof(s_isotp_send_buffer),
-                                s_isotp_receive_buffer,
-                                sizeof(s_isotp_receive_buffer));
-                isotp_set_rx_done_cb(&s_uds_isotp, DispatchUdsMessage, NULL);
-                isotp_stm32_init(&s_can_module, isotp_tx_buffer);
+                success = UDSServerTpISOTpCInit(
+                    &s_uds_transport, CAN_ID_UDS_REQUEST(node_id),
+                    CAN_ID_UDS_RESPONSE(node_id), UDS_TP_NOOP_ADDR) == UDS_OK;
+                s_uds_can_port.tx_buffer = isotp_tx_buffer;
+                s_uds_transport.phys_link.user_send_can_arg = &s_uds_can_port;
             }
         }
     }
@@ -415,7 +394,6 @@ static void OtaThreadEntry(void *parameter)
         if (s_lss_slave.activeNodeID != CO_LSS_NODE_ID_ASSIGNMENT)
         {
             PollUdsCanFrames();
-            isotp_poll(&s_uds_isotp);
             UDS_Poll(now);
             Download_Poll();
             if (UDS_ConsumeAcceptedReset())

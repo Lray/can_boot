@@ -3,6 +3,10 @@
 
 #include "301/CO_driver.h"
 
-void isotp_stm32_init(CO_CANmodule_t *CANmodule, CO_CANtx_t *tx_buffer);
+typedef struct
+{
+    CO_CANmodule_t *module;
+    CO_CANtx_t *tx_buffer;
+} isotp_stm32_t;
 
 #endif /* ISOTP_STM32_H */

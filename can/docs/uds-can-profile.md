@@ -7,20 +7,28 @@
 ## 当前实现
 
 - UDS server 直接采用未修改的 [`driftregion/iso14229` 0.11.0](../../third_party/iso14229/UPSTREAM.md)，
-  对应提交 `8a7eb23d6ab9d52f66ce36b07ba456613709c78e`。`uds_server.c` 只负责把现有
-  ISO-TP 通道接到上游 `UDSServer_t`，并在事件回调中实现本项目的 DID、Token 验证、
+  对应提交 `8a7eb23d6ab9d52f66ce36b07ba456613709c78e`。`uds_server.c` 接收上游
+  `UDSTp_t`，并在事件回调中实现本项目的 DID、Token 验证、
   inactive-slot 下载和复位策略。
-- ISO-TP 状态机直接采用 [`SimonCahill/isotp-c` v1.8.0](../ThirdParty/isotp-c/UPSTREAM.md)，
-  对应提交 `abb9e552df0e7ca0148c146124795341d57124fe`；第三方运行时源码不作修改，
-  STM32 适配仅实现 CAN 发送、毫秒分辨率的微秒单位时钟和调试三个上游端口函数；
-  接收帧直接交给上游 `isotp_on_can_message()`。
+- ISO-TP 直接采用该版本 iso14229 内置的 `UDSTpISOTpC_t` 和 isotp-c 实现，
+  通过 `UDSServerTpISOTpCInit()` 初始化，不再单独编译独立的 isotp-c 库。
+  第三方运行时源码不作修改；STM32 适配仅实现 CAN 发送、毫秒分辨率的微秒单位
+  时钟和调试三个上游端口函数，CAN 发送上下文通过 `user_send_can_arg` 传入。
+- CAN 接收回调只将完整帧入队，OTA 线程将帧交给 `tp.phys_link`，随后调用
+  `UDSServerPoll()`，由上游统一轮询 ISO-TP 并取走完整 PDU。接收数据只从
+  ISO-TP 重组缓冲复制一次到 UDS 请求缓冲，没有应用层整包中转缓冲或完成回调。
+  `FULL` 状态期间保留尚未消费的 PDU，丢弃后来的请求数据帧；FC 仍交给上游，
+  保证发送中的响应能够继续。这是本项目的单个待处理请求策略。
 - Classic CAN，8-byte CAN DLC，标准 11-bit normal addressing。
 - 物理请求 ID 为 `0x7E0`，响应 ID 为 `0x7E8`；当前不接收 functional addressing、
   29-bit addressing、extended/mixed addressing 或 CAN FD。
 - ISO-TP 支持 Single Frame、First/Consecutive Frame 和 Flow Control；接收端对
-  超出 512-byte 配置缓冲区的 First Frame 返回 `FC(OVFLW)`。
+  超出上游默认 4095-byte 接收缓冲区的 First Frame 返回 `FC(OVFLW)`。
 - First Frame 接受普通 12-bit 长度；能够识别 32-bit extended length 格式，但所有
-  合法 extended-length PDU 都超过 512-byte MCU 缓冲区，因此以 `FC(OVFLW)` 拒绝。
+  合法 extended-length PDU 都超过 4095-byte MCU 缓冲区，因此以 `FC(OVFLW)` 拒绝。
+- UDS 收发缓冲也采用上游默认 4095 字节；编译期检查 UDS 接收容量不小于
+  ISO-TP 最大 PDU，避免上游接收复制被截断。服务级长度约束保持独立，
+  `0x36` 单次数据仍最多 256 字节，`0x74` 公布的最大块长仍为 258 字节。
 - 接收端 Flow Control 为 `CTS, BS=8, STmin=2 ms`；Flow Control 的解析和状态
   迁移完全由上游实现维护。上游默认最多接受 1 个连续 `WAIT`，超限后以
   `WFT_OVRN` 结束发送。

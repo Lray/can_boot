@@ -128,7 +128,12 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
     _POSIX_C_SOURCE=200809L
     UDS_SYS=UDS_SYS_CUSTOM
-    UDS_TP_MTU=512
+    UDS_TP_ISOTP_C
+    ISO_TP_DEFAULT_BLOCK_SIZE=8U
+    ISO_TP_DEFAULT_ST_MIN_US=2000U
+    ISO_TP_DEFAULT_RESPONSE_TIMEOUT_US=1000000U
+    ISO_TP_FRAME_PADDING
+    ISO_TP_FRAME_PADDING_VALUE=0x00
 )
 
 # Remove wrong libob.a library dependency when using cpp files
@@ -140,7 +145,6 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     qbor
     tcose
     tinycrypt
-    simon_cahill::isotp_c
 )
 
 # Post-build: generate .bin and .hex for STM32CubeIDE/CubeProgrammer and
